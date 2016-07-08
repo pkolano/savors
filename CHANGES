@@ -1,0 +1,47 @@
+CHANGES
+=======
+
+* Savors 2.0 (4/28/14)
+    - First public release
+
+* Savors 2.1 (11/7/14)
+    - Added optional help topic when specifying -h/--help
+    - Added optional display of commands without console using --command
+    - Added optional geometry specification of view area using --vgeometry
+    - Added optional color legends to views using --legend
+    - Added optional title bar to views using --title
+    - Added optional color assignment type (e.g. via hash) using --ctype
+    - Added optional filtering of data at view level using --grep
+    - Added ability to use multi-host/multi-display systems
+    - Added composite views using layout and view directives
+    - Added color directive to support unified colorization from same data
+    - Added host directive to specify host on which data server runs
+    - Added wildcard expansion to data command handling
+    - Added ability to specify alternate prefix during host anonymization
+    - Added --geometry command-line option to console
+    - Added --date option to chart view to specify strftime format
+    - Added --lines option to chart view to specify number of lines shown
+    - Added --count option to cloud view to increment data by any amount
+    - Added ability to save window to postscript file via ex :s and C-s binding
+    - Added catchall exception handler when debug_file set
+    - Added associated conference paper to doc
+    - Added prerequisite Net::Nslookup
+    - Added prerequisite String::ShellQuote
+    - Added prerequisite Text::Balanced
+    - Fixed leftover data/view processes when empty messages received
+    - Fixed view width/height computation when --title (now --frame) specified
+    - Fixed graphviz-based views overrunning display area
+    - Fixed size of view label in console layout
+    - Fixed removal of comments/whitespace in ~/.savorsrc handling
+    - Fixed word cloud so will always generate same cloud from same data
+    - Fixed composite charts when variable number of fields specified
+    - Fixed console data line to not show internal variables
+    - Fixed window manager reducing specified console geometry
+    - Changed behavior of split directive to mirror perl split
+    - Changed name directive and fN variable to data directive and fD
+    - Changed --title option and title config value to --frame and frame
+    - Removed --cmin/--cmax options from grid/map views (use --ctype instead)
+    - Removed prerequisite Net::DNS
+    - Removed prerequisite Number::Fraction
+    - Removed prerequisite GeoIP C API
+

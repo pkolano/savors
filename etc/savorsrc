@@ -1,0 +1,92 @@
+#
+# Skeleton configuration file for Savors.
+#
+# Items that are commented out show the default value.
+#
+# A value of nodefault indicates no default value for that item.
+#
+# Items that are not commented out (besides the save_X settings)
+# indicate values that must be explicitly configured.
+# The values given for these items are examples only.
+#
+
+# string to use for host/ip/user anonymization
+#   (example: anon_key examplekey)
+#anon_key nodefault
+
+# destination file for debug output
+#   (only intended for development)
+#   (example: debug_file /home/user1/dbg.txt)
+#debug_file nodefault
+
+# comma-separated list of host:display pairs to use 
+#   (the wall setting specifies the layout)
+#   (example: host1:0,host2:0)
+#displays localhost:0
+
+# font size of console editor and related items
+#font_size 12
+
+# use frames on all view windows when non-zero
+#   (this wastes space but may be desirable until familiar with interface)
+#frame 0
+
+# X11 geometry of console window
+#geometry 1024x640+400+400
+
+# location of Savors auxiliary files
+lib_dir /usr/local/lib/savors
+
+# maximum percentage of display width used for views
+#smaxx 1
+
+# maximum percentage of display height used for views
+#   (it is highly recommended to set this < 1 with a single monitor)
+#   (also useful < 1 with Xinerama/XRandR over laptop+monitor configuration)
+#   (example: smaxy 0.5)
+#smaxy 1
+
+# file used to save snapshots taken with the C-s binding in view windows
+#snap_file savors-snap.ps
+
+# use TCP sockets instead of UNIX sockets when non-zero
+#   (note that data streams are *NOT ENCRYPTED* between components)
+#   (this must be enabled on cygwin)
+#tcp 0
+
+# layout of displays in columns by rows
+#   (example: wall 2x4)
+#wall 1x1
+
+# some example views
+# ==================
+
+# parallel coordinate plot of user process resource consumption
+save_axis_ps env repeat=15 sed='(\d)[-:](\d)/$1$2' grep_v='^USER' label_grep='^USER' ps -Nu root -o user,uid,pid,thcount,rsz,sz,vsz,time,etime,comm |axis --type=parallel --color=f10 --fields=f2-f9 --max=65535,100000,64,5000000,3000000,3000000,20000000,50000000 --period=10 --lines=600
+
+# stacked bar chart of user process cpu consumption
+save_chart_top env grep='^\s*\d' grep_v=' root ' time=f3 time_grep='^top' top -b -d 10 |chart --type=stackedbar --color=f12 --fields=f9+.01 --period=10
+
+# word cloud of user processes
+save_cloud_top env grep='^\s*\d' grep_v=' root ' time=f3 time_grep='^top' top -b -d 10 |cloud --color=f12 --fields=f2,f12 --period=10 --ngram=2
+
+# easy graph of host connectivity
+save_graph_ss env repeat=15 split='\s+|\s*:\s*' label_grep='^State' grep_v='^State' ss -nrt |graph --type=easy --fields=f4,f6 --period=10 --swap='f7>10000'
+
+# twopi graph of process relationships
+save_graph_ps env repeat=15 grep_v='^USER' ps -Nu root -o user,pid,ppid,comm |graph --type=twopi --color=f4 --fields=f3,f2 --period=10 --label='f1.":".f4'
+
+# adjacency matrix of file system mount options
+save_grid_mount env split='\s+|\s*,\s*' sed='\(|\)|\S*addr=\S*/' repeat=15 mount |grid --type=graph --color=f3 --fields=f3,f5-fL --period=10
+
+# arc world map of tcp connections
+save_map_tcpdump env time=f1 sed='\.\d+ \>|\.\d+:/' tcpdump -ni any tcp |map --type=arc --color=f3 --fields='iplat(f3),iplong(f3),iplat(f4),iplong(f4)'
+
+# rainfall of kernel ring buffer messages
+save_rain_dmesg dmesg |rain --color=f2
+
+# treemap of PBS jobs
+save_tree_qstat env repeat=15 grep_v='^\D' qstat -r -W showsvr=-1 |tree --color=f2 --fields=f3,f2,f1,f5 --period=10
+
+# treemap of user processes by cpu consumption
+save_tree_top env grep='^\s*\d' grep_v=' root ' time=f3 time_grep='^top' top -b -d 10 |tree --color=f12 --fields=f2,f12,f9+.01 --period=10

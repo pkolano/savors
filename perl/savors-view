@@ -1,0 +1,308 @@
+#!/usr/bin/env perl
+#
+# Copyright (C) 2010 United States Government as represented by the
+# Administrator of the National Aeronautics and Space Administration
+# (NASA).  All Rights Reserved.
+#
+# This software is distributed under the NASA Open Source Agreement
+# (NOSA), version 1.3.  The NOSA has been approved by the Open Source
+# Initiative.  See http://www.opensource.org/licenses/nasa1.3.php
+# for the complete NOSA document.
+#
+# THE SUBJECT SOFTWARE IS PROVIDED "AS IS" WITHOUT ANY WARRANTY OF ANY
+# KIND, EITHER EXPRESSED, IMPLIED, OR STATUTORY, INCLUDING, BUT NOT
+# LIMITED TO, ANY WARRANTY THAT THE SUBJECT SOFTWARE WILL CONFORM TO
+# SPECIFICATIONS, ANY IMPLIED WARRANTIES OF MERCHANTABILITY, FITNESS FOR
+# A PARTICULAR PURPOSE, OR FREEDOM FROM INFRINGEMENT, ANY WARRANTY THAT
+# THE SUBJECT SOFTWARE WILL BE ERROR FREE, OR ANY WARRANTY THAT
+# DOCUMENTATION, IF PROVIDED, WILL CONFORM TO THE SUBJECT SOFTWARE. THIS
+# AGREEMENT DOES NOT, IN ANY MANNER, CONSTITUTE AN ENDORSEMENT BY
+# GOVERNMENT AGENCY OR ANY PRIOR RECIPIENT OF ANY RESULTS, RESULTING
+# DESIGNS, HARDWARE, SOFTWARE PRODUCTS OR ANY OTHER APPLICATIONS RESULTING
+# FROM USE OF THE SUBJECT SOFTWARE.  FURTHER, GOVERNMENT AGENCY DISCLAIMS
+# ALL WARRANTIES AND LIABILITIES REGARDING THIRD-PARTY SOFTWARE, IF
+# PRESENT IN THE ORIGINAL SOFTWARE, AND DISTRIBUTES IT "AS IS".
+#
+# RECIPIENT AGREES TO WAIVE ANY AND ALL CLAIMS AGAINST THE UNITED STATES
+# GOVERNMENT, ITS CONTRACTORS AND SUBCONTRACTORS, AS WELL AS ANY PRIOR
+# RECIPIENT.  IF RECIPIENT'S USE OF THE SUBJECT SOFTWARE RESULTS IN ANY
+# LIABILITIES, DEMANDS, DAMAGES, EXPENSES OR LOSSES ARISING FROM SUCH USE,
+# INCLUDING ANY DAMAGES FROM PRODUCTS BASED ON, OR RESULTING FROM,
+# RECIPIENT'S USE OF THE SUBJECT SOFTWARE, RECIPIENT SHALL INDEMNIFY AND
+# HOLD HARMLESS THE UNITED STATES GOVERNMENT, ITS CONTRACTORS AND
+# SUBCONTRACTORS, AS WELL AS ANY PRIOR RECIPIENT, TO THE EXTENT PERMITTED
+# BY LAW.  RECIPIENT'S SOLE REMEDY FOR ANY SUCH MATTER SHALL BE THE
+# IMMEDIATE, UNILATERAL TERMINATION OF THIS AGREEMENT.
+#
+
+use strict;
+use File::Temp qw(tmpnam);
+use Getopt::Long qw(:config bundling no_ignore_case require_order);
+use IO::Socket::INET;
+use IO::Socket::UNIX;
+use MIME::Base64;
+use POSIX;
+use Storable qw(thaw);
+use Time::HiRes qw(sleep);
+use Tk;
+
+use Savors::Debug;
+
+use sigtrap qw(handler quit error-signals normal-signals);
+
+our $VERSION = 0.21;
+
+my %opts = (
+    buffer => [],
+    buffer_size => 8192,
+    command => undef,
+    console => undef,
+    display => ':0.0',
+    offset => 0,
+    servers => {},
+    sheight => 1,
+    smaxx => 1,
+    smaxy => 1,
+    socket => undef,
+    swidth => 1,
+    sx => 0,
+    sy => 0,
+    theight => 0,
+    twidth => 0,
+);
+GetOptions(\%opts,
+    "command=s", "display=s", "frame", "sheight=f", "smaxx=f", "smaxy=f",
+    "swidth=f", "sx=f", "sy=f", "tcp", "theight=i", "twidth=i", "vgeometry=s",
+    "view=s",
+) or die;
+
+die if (!$opts{view});
+my $module = "Savors::View::" . ucfirst(lc($opts{view}));
+eval "require $module" or die;
+
+# get ephemeral socket
+if ($opts{tcp}) {
+    $opts{socket} = IO::Socket::INET->new(
+        Listen => 1,
+        Proto => 'tcp',
+    );
+    print $opts{socket}->sockport();
+} else {
+    $opts{socket} = IO::Socket::UNIX->new(
+        Listen => 1,
+        Local => tmpnam(),
+    );
+    $opts{socket}->blocking(0);
+    print $opts{socket}->hostpath();
+}
+
+# detach process
+exit if (fork);
+close STDIN;
+close STDOUT;
+close STDERR;
+setsid;
+open(STDIN, "</dev/null");
+open(STDOUT, ">/dev/null");
+open(STDERR, ">/dev/null");
+
+# use catchall exception handler to report failures
+$SIG{__DIE__} = sub {
+    our @exception = @_ if (defined $^S && !$^S);
+};
+END {
+    our @exception;
+    debug(scalar localtime(time), " savors-view: ", @exception) if (@exception);
+}
+
+#####################
+#### main window ####
+#####################
+$ENV{DISPLAY} = $opts{display} if (!defined $ENV{DISPLAY});
+my $raised = 1;
+# MainWindow modifies @ARGV so it must be preserved for view option parsing
+my @argv_save = @ARGV;
+my $top = MainWindow->new(
+    -title => "Savors View",
+);
+$top->OnDestroy(\&quit);
+$top->bind('<Control-c>', \&quit);
+$top->bind('<Control-s>', sub {
+    syswrite($opts{console}, "save\n") if ($opts{console});
+});
+# keep console focus after spawning window
+$top->bind('<FocusIn>', sub {
+    syswrite($opts{console}, "focus\n") if ($opts{console});
+});
+
+@ARGV = @argv_save;
+$top->overrideredirect(1) if (!$opts{frame});
+$top->resizable(0, 0);
+
+if ($opts{vgeometry} =~ /(r?\d+)x(\d+)([+\-])(-?\d+)([+\-])(-?\d+)/) {
+    my ($w, $h, $xsign, $xoff, $ysign, $yoff) = ($1, $2, $3, $4, $5, $6);
+    my $rel = $w =~ s/^r//;
+    $opts{maxx} = int($w * ($rel ? $top->screenwidth : 1));
+    $opts{maxy} = int($h * ($rel ? $top->screenheight : 1));
+    $opts{xoff} = int($xoff * ($rel ? $top->screenwidth : 1));
+    $opts{yoff} = int($yoff * ($rel ? $top->screenheight : 1));
+    $opts{xsign} = $xsign;
+    $opts{ysign} = $ysign;
+} elsif ($opts{vgeometry} =~ /(\d+)x(\d+)/) {
+    my ($w, $h) = ($1, $2);
+    $opts{maxx} = $w;
+    $opts{maxy} = $h;
+    $opts{xsign} = "+";
+    $opts{ysign} = "+";
+} else {
+    $opts{maxx} = int($top->screenwidth * $opts{smaxx});
+    $opts{maxy} = int($top->screenheight * $opts{smaxy});
+    $opts{xsign} = "+";
+    $opts{ysign} = "+";
+}
+
+$top->geometry(
+    (int($opts{maxx} * $opts{swidth}) - $opts{twidth}) . "x" .
+    (int($opts{maxy} * $opts{sheight}) - $opts{theight}) .
+    $opts{xsign} . int($opts{xoff} + $opts{maxx} * $opts{sx}) .
+    $opts{ysign} . int($opts{yoff} + $opts{maxy} * $opts{sy})
+);
+
+my $view = $module->new($top, \%opts);
+$view->init;
+$top->idletasks;
+$top->fileevent($opts{socket}, 'readable', [\&readable, $opts{socket}]);
+
+MainLoop;
+
+#################
+#### process ####
+#################
+sub process {
+    my $fh = shift;
+    my $msg = shift;
+
+    my $over = 1 + $opts{offset} - $opts{buffer_size};
+    if ($over > 0 && defined $opts{buffer_size}) {
+        splice(@{$opts{buffer}}, 0, $over);
+        $opts{offset} -= $over;
+    }
+    if ($msg =~ /^bbox\s+(\S+)\s+(\S+)\s+(\S+)\s+(\S+)/) {
+        $opts{swidth} = $1;
+        $opts{sheight} = $2;
+        $opts{sx} = $3;
+        $opts{sy} = $4;
+        $top->geometry(
+            (int($opts{maxx} * $opts{swidth}) - $opts{twidth}) . "x" .
+            (int($opts{maxy} * $opts{sheight}) - $opts{theight}) .
+            $opts{xsign} . int($opts{xoff} + $opts{maxx} * $opts{sx}) .
+            $opts{ysign} . int($opts{yoff} + $opts{maxy} * $opts{sy})
+        );
+        $top->idletasks;
+        $view->bbox if ($raised);
+    } elsif ($msg eq 'lower') {
+        $top->withdraw;
+        $raised = 0;
+    } elsif ($msg =~ /^label\s+(.*)/) {
+        my @labels = map {unescape($_)} split(/,/, $1);
+        $opts{labels} = \@labels;
+    } elsif ($msg =~ /^data\s+(.*)/) {
+        my $data = thaw(decode_base64($1));
+        syswrite($fh, "ready\n");
+        push(@{$opts{buffer}}, $data);
+        $opts{offset} = scalar(@{$opts{buffer}}) - 1;
+        my $eof = $data->[0] eq 'savors_eof' ? 1 : 0;
+        if ($opts{console} && !$eof) {
+            # color data here and send to console
+            my @colors = $view->color($data);
+            if (scalar(@colors) > 1) {
+                my %chash = @colors;
+                while (my ($cfield, $color) = each %chash) {
+                    syswrite($opts{console}, "color $color $cfield\n")
+                        if ($cfield !~ /^#/);
+                }
+            }
+        }
+        $view->play($data, $raised) if ($eof || $view->grep($data));
+    } elsif ($msg =~ /^quit(\s+display)?/) {
+        my $display = $1;
+        $opts{console} = undef if (!$display);
+        quit($display);
+    } elsif ($msg eq 'raise') {
+        $top->deiconify;
+        $view->bbox;
+        $raised = 1;
+    } elsif ($msg =~ /^save\s+(.*)/) {
+        my $file = $1;
+        $file =~ s/\s+$//;
+        $view->save($file);
+    } elsif ($msg =~ /^server\s+(\S+)/) {
+        my $server = $1;
+        if (!$opts{servers}->{$server}) {
+            my $sock;
+            if ($opts{tcp}) {
+                $sock = IO::Socket::INET->new(
+                    Blocking => 0,
+                    PeerAddr => $server,
+                    Proto => 'tcp',
+                );
+            } else {
+                $sock = IO::Socket::UNIX->new(
+                    Peer => $server,
+                );
+                $sock->blocking(0);
+            }
+            sleep 0.1 while (!$sock->connected);
+            $top->fileevent($sock, 'readable', [\&readable, $sock]);
+            syswrite($sock, "join\n");
+            $opts{servers}->{$server} = $sock;
+        }
+    }
+}
+
+##############
+#### quit ####
+##############
+sub quit {
+    my $display = shift;
+    syswrite($opts{console}, "leave$display\n") if ($opts{console});
+    syswrite($_, "leave\n") foreach (values %{$opts{servers}});
+    unlink $opts{socket}->hostpath if (!$opts{tcp});
+    _exit(0);
+}
+
+##################
+#### readable ####
+##################
+my $readable_buf;
+sub readable {
+    my $fh = shift;
+    return if (!$fh);
+    if ($fh eq $opts{socket}) {
+        my $sock = $fh->accept;
+        $sock->blocking(0);
+        $top->fileevent($sock, 'readable', [\&readable, $sock]);
+        $opts{console} = $sock;
+        return;
+    }
+    my ($len, $tmp);
+    $readable_buf .= $tmp while ($len = sysread($fh, $tmp, 16384));
+    # remove accepted socket when no more data available
+    if (defined $len && $len == 0) {
+        $top->fileevent($fh, 'readable', '');
+        # workaround for empty message during console-less signal handling
+        $readable_buf = "quit\n" if ($fh eq $opts{console});
+    }
+    process($fh, $1) while ($readable_buf =~ s/^(.*?)\r?\n//);
+}
+
+##################
+#### unescape ####
+##################
+# return uri-unescaped version of given string
+sub unescape {
+    my $text = shift;
+    $text =~ s/%([0-9A-Fa-f]{2})/chr(hex($1))/eg if (defined $text);
+    return $text;
+}
+

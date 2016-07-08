@@ -1,0 +1,120 @@
+#!/usr/bin/perl
+
+use strict;
+use Cwd qw(abs_path);
+use Getopt::Long;
+
+our $VERSION = 0.20;
+
+Getopt::Long::Configure(qw(bundling no_ignore_case require_order));
+my %opts = (
+    prefix => "/usr/local",
+);
+my $plver = $^V;
+$plver =~ s/v|\.\d+$//g;
+$opts{plprefix} = "$opts{prefix}/lib/perl5/site_lib/$plver/";
+exit 1 if !GetOptions(\%opts, qw(help|h citydb=s plprefix=s prefix=s));
+if ($opts{help}) {
+    print "'configure' configures Savors for different environments\n";
+    print "\n";
+    print "Usage: $0 [OPTION]...\n";
+    print "\n";
+    print "Defaults for the options are specified in brackets.\n";
+    print "\n";
+    print "Configuration:\n";
+    print "  --help             display this help and exit\n";
+    print "  --citydb=PATH      location of MaxMind GeoLite city database\n";
+    print "  --plprefix=DIR     perl installation directory [$opts{plprefix}]\n";
+    print "  --prefix=DIR       installation directory [$opts{prefix}]\n";
+    print "\n";
+    print "Report bugs to <paul.kolano\@nasa.gov>\n";
+    exit 0;
+}
+$opts{citydb} = abs_path($opts{citydb}) if ($opts{citydb});
+$opts{prefix} =~ s/\/*$/\//;
+$opts{plprefix} =~ s/\/*$/\//;
+
+my $error = 0;
+my @pl_mods = qw(
+    Chart::Bars
+    Data::RandomPerson
+    Date::Parse
+    GD
+    Geo::IP
+    Geo::ShapeFile
+    Graph::Easy
+    Graph::Easy::As_svg
+    Graphics::ColorObject
+    IO::Multiplex
+    IO::Pty
+    IP::Anonymous
+    IPC::Run
+    Lingua::StopWords
+    Net::Nslookup
+    Net::Server
+    String::CRC
+    String::ShellQuote
+    Text::Balanced
+    Tk
+    Tk::AbstractCanvas
+    Tie::IxHash
+    Treemap
+    XML::Simple
+);
+foreach my $mod (@pl_mods) {
+    print "checking for perl module $mod...";
+    if (!system("perl -M$mod -e '1' 2>/dev/null")) {
+        print "yes\n";
+    } else {
+        print "no\n";
+        print "*** ERROR: Can't find perl module $mod\n";
+        $error = 1;
+    }
+}
+print "\n";
+
+my @py_mods = qw(
+    cython
+    numpy
+    PIL
+);
+foreach my $mod (@py_mods) {
+    print "checking for python module $mod...";
+    if (!system("python -c 'import $mod' 2>/dev/null")) {
+        print "yes\n";
+    } else {
+        print "no\n";
+        print "*** ERROR: Can't find python module $mod\n";
+        $error = 1;
+    }
+}
+print "\n";
+
+my @cmds = (
+    "dot -V",
+    "mscgen -l",
+);
+foreach my $cmd (@cmds) {
+    print "checking for command $cmd...";
+    if (!system("$cmd >/dev/null 2>/dev/null")) {
+        print "yes\n";
+    } else {
+        print "no\n";
+        print "*** ERROR: Can't find command $cmd\n";
+        $error = 1;
+    }
+}
+print "\n";
+
+if ($error) {
+    print "configuration failed...check output for errors\n";
+    exit 1;
+} else {
+    print "configuration succeeded...creating Makefile.config\n";
+    open(FILE, ">Makefile.config");
+    while (my ($key, $val) = each %opts) {
+        print FILE uc($key) . "=" . $val . "\n";
+    }
+    close FILE;
+}
+

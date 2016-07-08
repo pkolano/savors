@@ -1,0 +1,524 @@
+#!/usr/bin/env perl
+#
+# Copyright (C) 2010 United States Government as represented by the
+# Administrator of the National Aeronautics and Space Administration
+# (NASA).  All Rights Reserved.
+#
+# This software is distributed under the NASA Open Source Agreement
+# (NOSA), version 1.3.  The NOSA has been approved by the Open Source
+# Initiative.  See http://www.opensource.org/licenses/nasa1.3.php
+# for the complete NOSA document.
+#
+# THE SUBJECT SOFTWARE IS PROVIDED "AS IS" WITHOUT ANY WARRANTY OF ANY
+# KIND, EITHER EXPRESSED, IMPLIED, OR STATUTORY, INCLUDING, BUT NOT
+# LIMITED TO, ANY WARRANTY THAT THE SUBJECT SOFTWARE WILL CONFORM TO
+# SPECIFICATIONS, ANY IMPLIED WARRANTIES OF MERCHANTABILITY, FITNESS FOR
+# A PARTICULAR PURPOSE, OR FREEDOM FROM INFRINGEMENT, ANY WARRANTY THAT
+# THE SUBJECT SOFTWARE WILL BE ERROR FREE, OR ANY WARRANTY THAT
+# DOCUMENTATION, IF PROVIDED, WILL CONFORM TO THE SUBJECT SOFTWARE. THIS
+# AGREEMENT DOES NOT, IN ANY MANNER, CONSTITUTE AN ENDORSEMENT BY
+# GOVERNMENT AGENCY OR ANY PRIOR RECIPIENT OF ANY RESULTS, RESULTING
+# DESIGNS, HARDWARE, SOFTWARE PRODUCTS OR ANY OTHER APPLICATIONS RESULTING
+# FROM USE OF THE SUBJECT SOFTWARE.  FURTHER, GOVERNMENT AGENCY DISCLAIMS
+# ALL WARRANTIES AND LIABILITIES REGARDING THIRD-PARTY SOFTWARE, IF
+# PRESENT IN THE ORIGINAL SOFTWARE, AND DISTRIBUTES IT "AS IS".
+#
+# RECIPIENT AGREES TO WAIVE ANY AND ALL CLAIMS AGAINST THE UNITED STATES
+# GOVERNMENT, ITS CONTRACTORS AND SUBCONTRACTORS, AS WELL AS ANY PRIOR
+# RECIPIENT.  IF RECIPIENT'S USE OF THE SUBJECT SOFTWARE RESULTS IN ANY
+# LIABILITIES, DEMANDS, DAMAGES, EXPENSES OR LOSSES ARISING FROM SUCH USE,
+# INCLUDING ANY DAMAGES FROM PRODUCTS BASED ON, OR RESULTING FROM,
+# RECIPIENT'S USE OF THE SUBJECT SOFTWARE, RECIPIENT SHALL INDEMNIFY AND
+# HOLD HARMLESS THE UNITED STATES GOVERNMENT, ITS CONTRACTORS AND
+# SUBCONTRACTORS, AS WELL AS ANY PRIOR RECIPIENT, TO THE EXTENT PERMITTED
+# BY LAW.  RECIPIENT'S SOLE REMEDY FOR ANY SUCH MATTER SHALL BE THE
+# IMMEDIATE, UNILATERAL TERMINATION OF THIS AGREEMENT.
+#
+
+package SavorsData;
+
+use strict;
+use Date::Parse;
+use File::Glob qw(:glob);
+use File::Temp qw(tmpnam);
+use Getopt::Long qw(:config bundling no_ignore_case require_order);
+use IO::Pty;
+use IO::Select;
+use IO::Socket::INET;
+use IO::Socket::UNIX;
+use IPC::Run;
+use MIME::Base64;
+use Net::Server::Multiplex;
+use POSIX;
+use Storable qw(nfreeze);
+use Text::ParseWords;
+use Time::HiRes qw(sleep);
+
+use Savors::Debug;
+use Savors::View;
+
+use base qw(Net::Server::Multiplex);
+
+our $VERSION = 0.21;
+
+my %opts = (
+    # buffer size should be kept small
+    # TODO: probably want batch_size setting back
+    buffer_size => 4,
+    offset => 0,
+    split => '\s+',
+    waiting => 0,
+);
+GetOptions(\%opts,
+    "cmd=s", "tcp",
+) or die;
+
+# get ephemeral socket
+my $tmp;
+if ($opts{tcp}) {
+    $tmp = IO::Socket::INET->new(
+        Listen => 1,
+        Proto => 'tcp',
+    );
+    $opts{port} = $tmp->sockport();
+} else {
+    $tmp = IO::Socket::UNIX->new(
+        Listen => 1,
+        Local => tmpnam(),
+    );
+    $tmp->blocking(0);
+    $opts{port} = $tmp->hostpath();
+}
+close $tmp;
+print $opts{port};
+# Net::Server needs additional specifier for unix sockets
+$opts{port} .= "|unix" if (!$opts{tcp});
+
+# detach process
+exit if (fork);
+close STDIN;
+close STDOUT;
+close STDERR;
+setsid;
+open(STDIN, "</dev/null");
+open(STDOUT, ">/dev/null");
+open(STDERR, ">/dev/null");
+
+# use catchall exception handler to report failures
+$SIG{__DIE__} = sub {
+    our @exception = @_ if (defined $^S && !$^S);
+};
+END {
+    our @exception;
+    debug(scalar localtime(time), " savors-data: ", @exception) if (@exception);
+}
+ 
+$opts{cmd} = uri_unescape($opts{cmd});
+my @args = parse_line('\s+', 0, $opts{cmd});
+if ($args[0] eq 'env') {
+    shift @args;
+    while ($args[0] =~ /=/) {
+        my $arg = shift @args;
+        my ($key, $val) = split(/=/, $arg, 2);
+        $opts{$key} = $val if ($key && defined $val);
+    }
+}
+
+# expand wildcards
+for (my $i = 0; $i < scalar(@args); $i++) {
+    my @vals = bsd_glob($args[$i],
+        GLOB_BRACE | GLOB_NOCHECK | GLOB_QUOTE | GLOB_TILDE);
+    splice(@args, $i, 1, @vals);
+    $i += scalar(@vals) - 1;
+}
+
+# make ssh sessions be quiet with tty
+splice(@args, 1, 0, "-qtx") if ($args[0] =~ /^ssh|\/ssh$/);
+
+my ($rpipe, $wpipe);
+pipe($rpipe, $wpipe);
+
+# use pty to avoid pipe buffering issues
+my $pty = IO::Pty->new;
+my $pid = fork;
+if (!$pid) {
+    $pty->make_slave_controlling_terminal;
+    my $slave = $pty->slave;
+    close $pty;
+    $slave->set_raw;
+    open(STDIN, '<&' . $slave->fileno);
+    open(STDOUT, '>&' . $slave->fileno);
+    open(STDERR, '>&' . $slave->fileno);
+    close $slave;
+
+    if (defined $opts{replay}) {
+        my $time0;
+        open(FILE, '<', $args[0]);
+        while (<FILE>) {
+            my ($time) = split(/:/, $_, 2);
+            if (defined $time0 && $opts{replay}) {
+                my $sleep = 1 / $opts{replay} * ($time - $time0);
+                sleep $sleep if ($sleep);
+            }
+            $time0 = $time;
+            print;
+        }
+        close FILE;
+    } else {
+        do {
+            if ($opts{repeat}) {
+                print "savors_repeat\n";
+                STDOUT->flush;
+            }
+            my @run;
+            my $cmd = [];
+            foreach (@args) {
+                if (/^\|$/) {
+                    push(@run, $cmd, $_);
+                    $cmd = [];
+                } else {
+                    push(@{$cmd}, $_);
+                }
+            }
+            push(@run, $cmd);
+            IPC::Run::run(@run);
+        } while ($opts{repeat} && sleep $opts{repeat});
+    }
+    exit;
+}
+$pty->close_slave;
+$pty->set_raw;
+my $sel = IO::Select->new($pty);
+
+my @buffer;
+my $console;
+my $labels;
+my $partial;
+my %ready;
+my $teefh;
+my %sockets;
+my $time = time;
+my $view;
+my $vopts = {};
+if ($opts{color}) {
+    @ARGV = ('--color', $opts{color});
+    push(@ARGV, '--ctype', $opts{ctype}) if ($opts{ctype});
+    $view = Savors::View->new(undef, $vopts, undef);
+}
+
+my $mode = ">";
+if ($opts{tee_a}) {
+    $mode .= ">";
+    $opts{tee} = $opts{tee_a};
+}
+if ($opts{tee} && (! -e $opts{tee} || -w $opts{tee})) {
+    open($teefh, $mode, $opts{tee});
+    $teefh->autoflush(1);
+}
+
+__PACKAGE__->run(port => $opts{port});
+
+#############
+#### cut ####
+#############
+sub cut {
+    my @data0 = @{$_[0]};
+    my @data;
+    foreach (split(/,/, $opts{cut})) {
+        s/fL/"f" . scalar(@data0)/eg;
+        if (/^f(\d+)-f(\d+)$/) {
+            push(@data, @data0[$1-1 .. $2-1]);
+        } elsif (/^f(\d+)$/) {
+            push(@data, @data0[$1-1]);
+        }
+    }
+    return \@data;
+}
+
+#################
+#### mux_eof ####
+#################
+sub mux_eof {
+    my $self = shift;
+    my $mux = shift;
+    my $fh = shift;
+    my $in_ref = shift;
+
+    if ($fh eq $console) {
+        # workaround for empty message during console-less signal handling
+        $$in_ref = "leave console\n";
+        $self->mux_input($mux, $fh, $in_ref);
+    }
+}
+
+###################
+#### mux_input ####
+###################
+sub mux_input {
+    my $self = shift;
+    my $mux = shift;
+    my $fh = shift;
+    my $in_ref = shift;
+
+    while ($$in_ref =~ s/^(.*?)\r?\n//) {
+        my $msg = $1;
+        next unless $msg;
+
+        $time = time if (!$opts{time} && !$opts{repeat});
+        my $over = $opts{offset} - $opts{buffer_size};
+        if ($over > 0) {
+            splice(@buffer, 0, $over);
+            $opts{offset} -= $over;
+        }
+        my $under = scalar(@buffer) - $opts{offset};
+        if (!$opts{eof} && $under <= 1) {
+            my $batch = $partial;
+            $partial = undef;
+            while ($sel->can_read(0)) {
+                my $line = <$pty>;
+                if (!defined $line) {
+                    $opts{eof} = 1;
+                    push(@buffer, ["savors_eof"]);
+                    # abort if dead process since can_read always true
+                    last if (waitpid($pid, WNOHANG) < 0);
+                } elsif ($line !~ /\n$/) {
+                    $partial = $line;
+                } else {
+                    if ($batch !~ /\n$|^$/s) {
+                        $line = $batch . $line;
+                        $batch = undef;
+                    }
+                    if ($opts{repeat} && $line =~ /savors_repeat/) {
+                        $time = time;
+                        next;
+                    }
+                    $time = parse_time($line)
+                        if ($opts{time_grep} && $line =~ /$opts{time_grep}/);
+                    parse_label($line, $mux)
+                        if ($opts{label_grep} && $line =~ /$opts{label_grep}/);
+                    next if ($opts{grep_v} && $line =~ /$opts{grep_v}/);
+                    next if ($opts{grep} && $line !~ /$opts{grep}/);
+                    my $line0 = $line;
+                    eval "\$line =~ s/$opts{sed}/g" if ($opts{sed});
+                    $line =~ s/^\s+|\s+$//g;
+                    my $data = [split(/$opts{split}/, $line)];
+                    my $vars;
+                    if ($opts{replay}) {
+                        $vars = shift @{$data};
+                    } else {
+                        $time = parse_time($data)
+                            if ($opts{time} && !$opts{time_grep});
+                        my $color;
+                        $color = parse_color($data, $mux) if ($opts{color});
+                        $vars = "$time:$opts{data}:$color";
+                    }
+                    $data = cut($data) if ($opts{cut});
+                    unshift(@{$data}, $vars);
+                    push(@buffer, $data);
+                    $batch .= $vars . " " . $line0;
+                    last if (++$under >= $opts{buffer_size});
+                }
+            }
+            if ($batch =~ /\n$/s) {
+                print $teefh $batch if ($teefh);
+            } else {
+                $partial = $batch . $partial;
+            }
+        }
+        if ($msg =~ /^join/) {
+            $ready{$fh} = 1;
+            if ($msg =~ /console/) {
+                $console = $fh;
+            } else {
+                $sockets{$fh} = $fh;
+                $mux->write($fh, "label $labels\n") if ($labels);
+            }
+        } elsif ($msg =~ /^leave/) {
+            $opts{waiting}-- if (!$ready{$fh});
+            delete $ready{$fh};
+            if ($msg =~ /console/) {
+                $console = undef;
+            } else {
+                delete $sockets{$fh};
+            }
+            if (scalar(keys %sockets) == 0 && !$console) {
+                kill('TERM', $pid);
+                close $pty;
+                $self->{net_server}->server_close;
+            }
+        } elsif ($msg eq 'ready') {
+            $opts{waiting}-- if (!$ready{$fh});
+            $ready{$fh} = 1;
+        }
+        next if ($opts{waiting});
+        if (scalar(@buffer) - $opts{offset} <= 1) {
+            # block until unfiltered input data available
+            my $line;
+            while (1) {
+                $line = <$pty>;
+                if ($partial) {
+                    $line = $partial . $line;
+                    $partial = undef;
+                }
+                last if (!defined $line);
+                while ($opts{repeat} && $line =~ /savors_repeat/) {
+                    $time = time;
+                    $line = <$pty>;
+                }
+                last if (!defined $line);
+                $time = parse_time($line)
+                    if ($opts{time_grep} && $line =~ /$opts{time_grep}/);
+                parse_label($line, $mux)
+                    if ($opts{label_grep} && $line =~ /$opts{label_grep}/);
+                last if ((!$opts{grep_v} || $line !~ /$opts{grep_v}/) &&
+                        (!$opts{grep} || $line =~ /$opts{grep}/));
+            }
+            if (!defined $line) {
+                $opts{eof} = 1;
+                push(@buffer, ["savors_eof"]);
+            } else {
+                my $line0 = $line;
+                eval "\$line =~ s/$opts{sed}/g" if ($opts{sed});
+                $line =~ s/^\s+|\s+$//g;
+                my $data = [split(/$opts{split}/, $line)];
+                my $vars;
+                if ($opts{replay}) {
+                    $vars = shift @{$data};
+                } else {
+                    $time = parse_time($data)
+                        if ($opts{time} && !$opts{time_grep});
+                    my $color;
+                    $color = parse_color($data, $mux) if ($opts{color});
+                    $vars = "$time:$opts{data}:$color";
+                }
+                $data = cut($data) if ($opts{cut});
+                unshift(@{$data}, $vars);
+                push(@buffer, $data);
+                print $teefh $vars . " " . $line0 if ($teefh);
+            }
+        }
+        if ($ready{$console} == 1) {
+            foreach my $socket (values(%sockets)) {
+                $mux->write($socket, "data " .
+                    encode_base64(nfreeze($buffer[$opts{offset}]), "") . "\n");
+                $ready{$socket} = 0;
+                $opts{waiting}++;
+            }
+            if ($opts{waiting}) {
+                $ready{$console} = 2;
+                $opts{offset}++;
+            }
+        } elsif ($ready{$console} == 2) {
+            $mux->write($console, "data " .
+                    encode_base64(nfreeze($buffer[$opts{offset}]), "") . "\n");
+            $ready{$console} = 0;
+            $opts{waiting}++;
+        }
+    }
+}
+
+#####################
+#### parse_color ####
+#####################
+my @unsent_colors;
+sub parse_color {
+    my $data = shift;
+    my $mux = shift;
+    unshift(@{$data}, ":::");
+    my @colors = $view->color($data);
+    shift @{$data};
+    if (!$console && scalar(@colors) > 1) {
+        # console hasn't joined yet so save colors until it does
+        push(@unsent_colors, "color $colors[1] $colors[0]\n");
+    } elsif ($console && scalar(@unsent_colors)) {
+        # send saved colors to console
+        $mux->write($console, $_) foreach (@unsent_colors);
+        @unsent_colors = ();
+    }
+    # send color to console
+    $mux->write($console, "color $colors[1] $colors[0]\n")
+        if ($console && scalar(@colors) > 1);
+    my $return = $colors[-1] . ":";
+    $return .= uri_escape($colors[0]) if (scalar(@colors) > 1);
+    return $return;
+}
+
+#####################
+#### parse_label ####
+#####################
+sub parse_label {
+    my $line = shift;
+    my $mux = shift;
+    my @labels = split(/,/, $opts{label} ? $opts{label} : "f1-fL");
+    $line =~ s/^\s+|\s+$//g;
+    my @fields = split(/$opts{split}/, $line);
+    for (my $i = 0; $i < scalar(@labels); $i++) {
+        my $eval = $labels[$i];
+        $eval =~ s/fL/"f" . scalar(@fields)/eg;
+        if ($eval =~ /^f(\d+)-f(\d+)$/) {
+            my ($f1, $f2) = ($1, $2);
+            splice(@labels, $i, 1, map {"f$_"} ($f1..$f2));
+            $i += ($f2 - $f1) - 1;
+        }
+    }
+    my @nlabels;
+    foreach my $label (@labels) {
+        my $eval = "q($label)";
+        $eval =~ s/f(\d+)/$fields[$1-1]/g;
+        my $nlabel = eval $eval;
+        $nlabel =~ s/(,)/sprintf("%%%02X", ord($1))/eg;
+        push(@nlabels, $nlabel);
+    }
+    $labels = join(",", @nlabels);
+    $mux->write($_, "label $labels\n") foreach (values(%sockets));
+}
+
+####################
+#### parse_time ####
+####################
+sub parse_time {
+    my $data = shift;
+    if (!ref $data) {
+        $data =~ s/^\s+|\s+$//g;
+        my $eval = $opts{time};
+        $data =~ s/^\s+|\s+$//g;
+        $data = [split(/$opts{split}/, $data)];
+    }
+    my $eval = $opts{time};
+    $eval =~ s/f(\d+)-f(\d+)/join(",", map {"f$_"} ($1..$2))/eg;
+    $eval =~ s/f(\d+)/"$data->[$1-1]"/g;
+    $eval =~ s/,/." "./g;
+    my $time = eval $eval;
+    $time = str2time($time) if ($time !~ /^\d+(\.\d+)?$/);
+    return $time;
+}
+
+##########################
+#### post_accept_hook ####
+##########################
+sub post_accept_hook {
+    my $self = shift;
+    $self->{mux}->add($rpipe);
+}
+
+####################
+#### uri_escape ####
+####################
+# return uri-escaped version of given string
+sub uri_escape {
+    my $text = shift;
+    $text =~ s/([^A-Za-z0-9\-\._~\/])/sprintf("%%%02X", ord($1))/eg
+        if (defined $text);
+    return $text;
+}
+
+######################
+#### uri_unescape ####
+######################
+# return uri-unescaped version of given string
+sub uri_unescape {
+    my $text = shift;
+    $text =~ s/%([0-9A-Fa-f]{2})/chr(hex($1))/eg if (defined $text);
+    return $text;
+}
+
