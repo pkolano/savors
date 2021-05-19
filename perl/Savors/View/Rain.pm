@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2010 United States Government as represented by the
+# Copyright (C) 2010-2021 United States Government as represented by the
 # Administrator of the National Aeronautics and Space Administration
 # (NASA).  All Rights Reserved.
 #
@@ -42,7 +42,7 @@ use Tk;
 
 use base qw(Savors::View);
 
-our $VERSION = 0.21;
+our $VERSION = 2.2;
 
 #############
 #### new ####
@@ -87,27 +87,26 @@ sub help {
         "     rain - text/binary rainfall    " .
             "    rain --color=f19 --fields=f17,f18 --hex --size=1\n";
     } else {
-        "USAGE: env OPT=VAL... (ARGS... |...) |rain ...\n\n" .
-        "OPTIONS:                                       EXAMPLES:\n" .
-        "      --color=EVAL - expression to color by    " .
+        "USAGE: env OPT=VAL... (ARGS... |...) |rain --opt=val...\n\n" .
+        "OPTIONS:                                          EXAMPLES:\n" .
+        "       --color=EVAL - expression to color by      " .
             "    --color=f19\n" .
-        "     --ctype=CTYPE - method to assign colors by" .
+        "      --ctype=CTYPE - method to assign colors by  " .
             "    --ctype=hash:ord\n" .
-        "    --fields=EVALS - subset of fields to show  " .
+        "     --fields=EVALS - subset of fields to show    " .
             "    --fields=f17,f18\n" .
-        "             --hex - show binary data as hex   " .
+        "              --hex - show binary data as hex     " .
             "    --hex\n" .
-        "          --legend - show color legend         " .
-            "    --legend\n" .
-        "        --max=INTS - max value of each field   " .
-            "    --max=100,10,50\n" .
-        "        --min=INTS - min value of each field   " .
-            "    --min=50,0,10\n" .
-        "     --period=REAL - time between updates      " .
+        "    --legend[=SIZE] - show color legend           \n" .
+        "                        [REAL width or INT pixels]" .
+            "    --legend=0.2\n" .
+        "    --legend-pt=INT - legend font point size      " .
+            "    --legend-pt=12\n" .
+        "      --period=REAL - time between updates        " .
             "    --period=3\n" .
-        "        --size=INT - font size or 1 for binary " .
+        "         --size=INT - font size or 1 for binary   " .
             "    --size=1\n" .
-        "    --title=STRING - title of view             " .
+        "     --title=STRING - title of view               " .
             "    --title=\"CPU Usage\"\n" .
         "";
     }
@@ -142,6 +141,12 @@ sub init {
         } else {
             $self->{pixels} = 1;
         }
+
+        $self->{canvas}->createRectangle(
+            1 + $self->{width}, 1, $self->{width} + 64, $self->{height},
+            -fill => 'black',
+            -tags => "legend",
+        );
     } else {
         $self->{canvas}->delete('!legend');
         $self->{canvas}->move('legend', $self->{width} - $oldx, 0);
@@ -244,7 +249,7 @@ sub view {
             -text => \@fields,
         );
     }
-
+    $self->{canvas}->raise("legend", "!legend");
     $self->{line} = ($self->{line} + 1) % $self->{lines};
     $self->{canvas}->idletasks if (!$noupdate);
 }

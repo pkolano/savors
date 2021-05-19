@@ -1,0 +1,139 @@
+.TH "savors-axis" "7" "18 May 2021" "" ""
+./"################################################################
+.SH "NAME"
+./"################################################################
+\fBsavors-axis\fP \(em plot multivariate numerical data along axes
+arranged in various ways
+./"################################################################
+.SH "SYNOPSIS"
+./"################################################################
+.nf
+env OPT=VAL... (ARGS... |...) |axis --opt=val...
+.fi
+.PP
+Display an axis view based on the given data pipeline.
+./"################################################################
+.SH "DESCRIPTION"
+./"################################################################
+The axis view type plots data lines across a set of axes equal in
+number to the set of fields specified.  Axes may be arranged in one of
+four different layouts.  The fields associated with each data line are
+mapped to a point along the corresponding axes.  The higher the value of
+a field, the farther along the axis it will be plotted.  Minimum and
+maximum values for each axis determine the physical pixel distance
+between different values.  The point along each axis is then connected
+through line or arc (depending on subtype) to the point associated with
+the next axis, hence a data line is represented by a connected path
+between axes.
+./"################################################################
+.SH "SUBTYPES"
+./"################################################################
+The axis view has four subtypes.
+.IP circle
+Axes appear as arc segments along the same circle with the distance
+counter-clockwise along the arc indicating the relative value of the
+field.  Points on consecutive axes are connected via internal arcs
+within the circle.
+.IP hive
+Axes appear as lines radiating from a central point with the distance
+from the center indicating the relative value of the field.  Points on
+consecutive axes are connected via arcs.
+.IP parallel
+Axes appear as vertical lines equally spaced along the horizontal region
+with the distance from the bottom indicating the relative value of the
+field.  Points on consecutive axes are connected via straight lines.
+.IP star
+Axes appear as lines radiating from a central point with the distance
+from the center indicating the relative value of the field.  Points on
+consecutive axes are connected via straight lines.
+./"################################################################
+.SH "OPTIONS SUMMARY"
+./"################################################################
+The following options are specific to the axis view.  See savors-view(7)
+for additional options that are available to all views.  Defaults are
+shown in brackets.  The \(cq\&=\(cq\& for options that take a parameter
+is optional; whitespace may be used instead.  Detailed descriptions are
+given in following sections.
+.PP
+.nf
+\-\-dash=EVAL     condition to dash edge
+\-\-label=STRINGS labels for axes
+\-\-lines=INT     data lines to show
+\-\-max=REALS     max value of each field
+\-\-min=REALS     min value of each field
+\-\-type=TYPE     type of plot [parallel]
+.fi
+./"################################################################
+.SH "OPTIONS"
+./"################################################################
+See savors-view(7) for detailed descriptions of the options that
+are available to all views.
+.IP "\fB\-\-dash=EVAL\fP"
+A Savors expression (see savors-expr(7)) that will be evaluated against
+each data line to determine if the connected path of each data line
+should be shown dashed.  Dashed paths will be shown for non-zero,
+non-empty values.
+.IP "\fB\-\-label=STRINGS\fP"
+A comma-separated list of strings used to label each axis.  The number
+of strings given must match the number of fields.  Strings do not need
+to be quoted unless they contain whitespace.  Labels can be
+automatically generated using the "label" data directive (see
+savors-data(7)).
+.IP "\fB\-\-lines=INT\fP"
+An integer specifying the number of data lines to show at once.  After
+the limit is reached, the oldest data line will be replaced with the
+newest.
+.IP "\fB\-\-max=REALS\fP"
+A comma-separated list of real numbers indicating the maximum value of
+each of the corresponding fields in \fB\-\-fields\fP.  Values greater
+than the maximum will be adjusted to the maximum.  The number of values
+given must match the number of fields.
+.IP "\fB\-\-min=REALS\fP"
+A comma-separated list of real numbers indicating the minimum value of
+each of the corresponding fields in \fB\-\-fields\fP.  Values less
+than the minimum will be adjusted to the minimum.  The number of values
+given must match the number of fields.
+.IP "\fB\-\-type=TYPE\fP"
+The type of axis plot to show with supported values of circle, hive,
+parallel, or star (see "Subtypes" above).  The default is parallel.
+./"################################################################
+.SH "EXAMPLES"
+./"################################################################
+Show a parallel coordinate plot of user process resource consumption.
+In this example, the ps command is invoked every 15 seconds to collect
+resource utilization.  A subset of the fields is plotted using a set of
+expected maximums and colored according to the command of each process.
+.PP
+.RS
+.nf
+env repeat=15 sed='(\d)[-:](\d)/$1$2' grep_v='^USER' label_grep='^USER' \\
+    ps -Nu root -o user,uid,pid,nlwp,rsz,sz,vsz,time,etime,comm \\
+    |axis --color=f10 --fields=f2-f9 --period=10 --lines=600 \\
+	--max=65535,100000,64,5000000,3000000,3000000,20000000,50000000
+.fi
+.RE
+./"################################################################
+.SH "FILES"
+./"################################################################
+/etc/savorsrc
+.RS
+This file specifies various global configuration items including
+screen and geometry preferences, file paths, default options, and
+preconfigured views.  See savorsrc(5).
+.RE
+.PP
+$HOME/.savorsrc
+.RS
+This file specifies per user overrides of global configuration and
+saved views.  See savorsrc(5).
+.RE
+./"################################################################
+.SH "AUTHOR"
+./"################################################################
+Savors was written by Paul Kolano.
+./"################################################################
+.SH "SEE ALSO"
+./"################################################################
+savors(1), savors-chart(7), savors-cloud(7), savors-data(7),
+savors-expr(7), savors-graph(7), savors-grid(7), savors-map(7),
+savors-rain(7), savors-tree(7), savors-view(7), savorsrc(5)

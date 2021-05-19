@@ -1,6 +1,6 @@
 #!/usr/bin/env perl
 #
-# Copyright (C) 2010 United States Government as represented by the
+# Copyright (C) 2010-2021 United States Government as represented by the
 # Administrator of the National Aeronautics and Space Administration
 # (NASA).  All Rights Reserved.
 #
@@ -35,20 +35,23 @@
 # IMMEDIATE, UNILATERAL TERMINATION OF THIS AGREEMENT.
 #
 
+use Savors::FatPack::PAL;
+
 use strict;
 use File::Basename;
 use Getopt::Long qw(:config bundling no_ignore_case require_order);
-use IO::Multiplex;
 use IO::Socket::INET;
 use IO::Socket::UNIX;
 use List::Util qw(max);
 use MIME::Base64;
 use POSIX;
 use Storable qw(thaw);
-use Text::Balanced qw(extract_bracketed);
 use Text::ParseWords;
 use Time::HiRes qw(sleep time);
 use Tk;
+use Tk::ROTextHighlight;
+use Tk::TextHighlight;
+require Tk::TextHighlight::Savors;
 
 use Savors::Console::Wall;
 use Savors::Console::Layout;
@@ -58,7 +61,7 @@ use Savors::Debug;
 
 use sigtrap qw(handler quit error-signals normal-signals);
 
-our $VERSION = 0.21;
+our $VERSION = 2.2;
 
 my $clipboard = "";
 my %conf;
@@ -67,7 +70,10 @@ my %defs = (
     font_size => 12,
     frame => 0,
     geometry => "1024x640+400+400",
+    green => '#859900',
     lib_dir => "/usr/local/lib",
+    passive => 0,
+    red => '#dc322f',
     smaxx => 1,
     smaxy => 1,
     snap_file => "savors-snap.ps",
@@ -76,22 +82,31 @@ my %defs = (
 );
 my %opts = (
     conf => $ENV{HOME} . "/.savorsrc",
-    gconf => "/etc/savorsrc",
+    gconf => $ENV{SAVORS_HOME} . "/etc/savorsrc",
     theight => 0,
     twidth => 0,
 );
+# second string conversions
+my %seconds = (
+    s => 1,
+    m => 60,
+    h => 60 * 60,
+    d => 24 * 60 * 60,
+    w => 7 * 24 * 60 * 60,
+);
 my %servers;
+my %snaps;
 my %windows;
 
 GetOptions(\%opts,
-    "command|c=s", "conf=s", "frame", "geometry=s", "help|h:s", "smaxx=f",
-    "smaxy=f", "tcp", "vgeometry=s",
+    "command|c=s", "conf=s", "frame", "geometry=s", "help|h:s", "passive",
+    "smaxx=f", "smaxy=f", "snap=s", "snap-file=s", "tcp", "vgeometry=s",
 ) or die "Invalid options\n";
-$opts{frame} = 1 if ($opts{command});
+$opts{snap_file} = $opts{'snap-file'} if ($opts{'snap-file'});
 
 my %help = (
     data =>
-        "USAGE: env OPT=VAL... (ARGS... |...) |VIEW ...\n\n" .
+        "USAGE: env OPT=VAL... (ARGS... |...) |VIEW --opt=val...\n\n" .
         "OPTIONS:                                                EXAMPLES:\n" .
         "             color=EVAL - expression to color by        " .
             "    color=f19\n" .
@@ -138,64 +153,67 @@ my %help = (
 #TODO add (... & ...) data cmd form
 #TODO #####################################################
     ex =>
-        "USAGE: env OPT=VAL... (ARGS... |...) |VIEW ...\n\n" .
-        "EX-COMMANDS                             EX-BINDINGS:\n" .
+        "USAGE: env OPT=VAL... (ARGS... |...) |VIEW --opt=val...\n\n" .
+        "EX-COMMANDS                                 EX-BINDINGS:\n" .
         "         :q - quit savors               " .
-            "    BackSpace - remove prev char\n" .
+            "        BackSpace - remove prev char\n" .
         "    :r NAME - read command from name    " .
-            "    Control-c - abort ex mode\n" .
+            "        Control-c - abort ex mode\n" .
         "    :s FILE - save window canvas to file" .
-            "       Escape - abort ex mode\n" .
-        "    :w NAME - store command as name     " .
+            "           Escape - abort ex mode\n" .
+        "    :S FILE - save layout canvas(es) to file" .
             "          Tab - complete :r name\n" .
+        "    :w NAME - store command as name     " .
         "",
     view =>
-        "USAGE: env OPT=VAL... (ARGS... |...) |VIEW ...\n\n" .
+        "USAGE: env OPT=VAL... (ARGS... |...) |VIEW --opt=val...\n\n" .
         "VIEWS:                                EXAMPLES:\n" .
         "",
     bind =>
-        "USAGE: env OPT=VAL... (ARGS... |...) |VIEW ...\n\n" .
+        "USAGE: env OPT=VAL... (ARGS... |...) |VIEW --opt=val...\n\n" .
         "BINDINGS:\n" .
         "      BackSpace - left        " .
             "    a/A - append cursor/at end  " .
-                "    p/P - prev window/layout\n" .
+                "    q/Q - un/focus region (X)\n" .
         "      Control-c - abort view  " .
             "    b/B - back word/non-space   " .
-                "    q/Q - un/focus region (X)\n" .
+                "    r/R - remove window/layout (X)\n" .
         "         Delete - delete char " .
             "    c/C - create window/layout  " .
-                "    r/R - remove window/layout (X)\n" .
+                "    s/S - horiz/vert split\n" .
         "           Down - step forward" .
             "    d/D - delete word/to end    " .
-                "    s/S - horiz/vert split\n" .
+                "      t - step time forward\n" .
         "         Escape - escape mode " .
             "    e/E - end word/non-space    " .
-                "    w/W - next word/non-space\n" .
+                "    u/U - undo/redo\n" .
         "           Left - cursor left " .
             "    h/H - cursor/layout left    " .
-                "    x/X - delete char/region\n" .
+                "    w/W - next word/non-space\n" .
         "         Return - execute view" .
             "    i/I - insert cursor/at start" .
-                "    y/Y - yank line\n" .
+                "    x/X - delete char/region\n" .
         "          Right - cursor right" .
             "      j - step forward          " .
-                "    z/Z - pause window/all\n" .
+                "    y/Y - yank line\n" .
         "     Shift-Down - layout down " .
             "      J - layout down           " .
-                "      ] - paste\n" .
+                "    z/Z - pause window/all\n" .
         "     Shift-Left - layout left " .
             "      k - step back (X)         " .
-                "      0 - line start\n" .
+                "      ] - paste\n" .
         "    Shift-Right - layout right" .
             "      K - layout up             " .
-                "      \$ - line end\n" .
+                "      0 - line start\n" .
         "       Shift-Up - layout up   " .
             "    l/L - cursor/layout right   " .
-                "      ^ - line non-space start\n" .
+                "      \$ - line end\n" .
         "          Space - cursor right" .
             "    n/N - next window/layout    " .
+                "      ^ - line non-space start\n" .
+        "             Up - step back (X)" .
+            "   p/P - prev window/layout    " .
                 "      : - ex mode\n" .
-        "             Up - step back (X)     " .
         "",
 );
 foreach (split(/,/, $defs{views})) {
@@ -216,11 +234,15 @@ if (defined $opts{help}) {
     print "      --conf=FILE      load config from file [$opts{conf}]\n";
     print "      --frame          show frame on view windows\n";
     print "      --geometry=GEOM  geometry of console window [$defs{geometry}]\n";
-    print "  -h, --help=TOPIC     help with optional topic one of {bind,data,ex,view\n";
-    print "                         " . lc($defs{views}) . "\n";
+    print "  -h, --help[=TOPIC]   help with optional topic one of {bind,data,ex,view\n";
+    print "                         " . lc($defs{views}) . "}\n";
+    print "      --passive        views wait for data connections instead of vice-versa\n";
     print "      --smaxx=REAL     max fraction of screen width to use for views [$defs{smaxx}]\n";
     print "      --smaxy=REAL     max fraction of screen height to use for views [$defs{smaxy}]\n";
-    print "      --tcp            use tcp sockets instead of unix sockets\n";
+    print "      --snap=PERIOD    take layout snapshot every PERIOD amount of time\n";
+    print "                         (use suffix {s,m,h,d,w} for {sec,min,hour,day,week})\n";
+    print "      --snap-file=FILE save snapshots to FILE\n";
+    print "      --tcp            use TCP sockets instead of Unix sockets\n";
     print "      --vgeometry=GEOM geometry of screen area to use for views\n";
     exit;
 }
@@ -250,6 +272,16 @@ foreach my $key (keys %defs) {
         if (!defined $opts{$key});
 }
 
+if ($opts{snap}) {
+    if ($opts{snap} =~ /^([1-9]\d*)([smhdw])?$/i) {
+        my ($val, $unit) = ($1, $2);
+        $unit = "s" if (!defined $unit);
+        $opts{snap} = $val * $seconds{lc $unit};
+    } else {
+        die "Bad snapshot period $opts{snap}\n";
+    }
+}
+
 if ($opts{frame}) {
     # compute size of title frame
     my $tmp = MainWindow->new(
@@ -267,7 +299,7 @@ sub layout {return $wall->current};
 sub region {return layout->current};
 sub window {return region->current};
 
-my ($top, $canvas, $text, $help_text, $ex, $status, $raw, $legend, $mux);
+my ($top, $canvas, $text, $help_text, $ex, $status, $raw, $legend);
 
 if ($opts{command}) {
     if ($opts{command} =~ /^\s*(\w+)\s*$/) {
@@ -276,10 +308,18 @@ if ($opts{command}) {
         die "No saved command named $name\n" if (!$command);
         $opts{command} = $command;
     }
-    $mux = IO::Multiplex->new;
+    layout->raise;
+    layout->focus;
+    $top = MainWindow->new(
+        -height => 0,
+        -width => 0,
+    );
+    $top->overrideredirect(1);
+    $top->resizable(0, 0);
+    $top->withdraw;
+    $top->OnDestroy(\&quit);
     &bind(undef, 'Return');
-    $mux->set_callback_object(__PACKAGE__);
-    $mux->loop;
+    MainLoop;
 } else {
     #####################
     #### main window ####
@@ -317,12 +357,14 @@ if ($opts{command}) {
         -fill => 'both',
         -side => 'right',
     );
-    $text = $frame1r->Text(
+    $text = $frame1r->TextHighlight(
         -background => 'black',
         -font => "courier -$opts{font_size}",
         -foreground => 'white',
         -height => 3,
         -insertbackground => 'white',
+        -matchoptions => [-background => "#dc322f", -foreground => 'white'],
+        -syntax => "Savors",
     )->pack(
         -expand => 1,
         -fill => 'both',
@@ -330,12 +372,14 @@ if ($opts{command}) {
     );
     $text->focus;
 
-    $help_text = $frame1r->Text(
+    $help_text = $frame1r->ROTextHighlight(
         -background => 'black',
         -font => "courier -" . ($opts{font_size} - 2),
         -foreground => 'white',
         -height => 15,
         -insertbackground => 'white',
+        -syntax => "Savors",
+        -wrap => 'none',
     )->pack(
         -expand => 1,
         -fill => 'both',
@@ -375,7 +419,7 @@ if ($opts{command}) {
         -side => 'left',
     );
     $status->createRectangle(180, 1, 244, 16,
-        -fill => 'green',
+        -fill => $defs{green},
         -state => 'hidden',
         -tags => 'insert',
     );
@@ -393,7 +437,7 @@ if ($opts{command}) {
         -tags => 'pause_one',
     );
     $status->createRectangle(244, 1, 308, 16,
-        -fill => 'red',
+        -fill => $defs{red},
         -state => 'hidden',
         -tags => 'pause_all',
     );
@@ -449,16 +493,19 @@ if ($opts{command}) {
     # update to get size
     $canvas->idletasks;
 
-    #TODO: change this later
-    $wall->{canvas} = $canvas;
-    $wall->{text} = $text;
+    $wall->canvas($canvas);
+    $wall->text($text);
     layout->raise;
     layout->focus;
 
-    # remove all Tk::Text bindings
+    # remove all default text widget bindings
     $top->bind('Tk::Text', $_, '') foreach ($top->bind('Tk::Text'));
+    $top->bind('Tk::TextHighlight', $_, '')
+        foreach ($top->bind('Tk::TextHighlight'));
+    $top->bind('Tk::ROTextHighlight', $_, '')
+        foreach ($top->bind('Tk::ROTextHighlight'));
 
-    # add back useful Tk::Text bindings
+    # add back useful text widget bindings
     $text->bind('<1>', ['Button1', Ev('x'), Ev('y')]);
     $text->bind('<B1-Motion>', 'B1_Motion');
     $text->bind('<B1-Leave>', 'B1_Leave');
@@ -481,14 +528,16 @@ if ($opts{command}) {
         $text->SetCursor($xy);
     });
 
-    # new bindings
+    # new text widget bindings
     $text->bind('<Control-c>', [\&bind, 'Control-c']);
     $text->bind('<KeyPress>', [\&bind, Ev('K'), Ev('A')]);
+    $text->bind('<Return>', [\&bind, 'Return']);
     $text->bind('<Shift-Down>', [\&bind, 'Shift-Down']);
     $text->bind('<Shift-Left>', [\&bind, 'Shift-Left']);
     $text->bind('<Shift-Right>', [\&bind, 'Shift-Right']);
     $text->bind('<Shift-Up>', [\&bind, 'Shift-Up']);
     $ex->bind('<Control-c>', [\&bind_ex, 'Escape']);
+    $ex->bind('<FocusOut>', sub {$ex->Contents("")});
     $ex->bind('<KeyPress>', [\&bind_ex, Ev('K'), Ev('A')]);
     $ex->bind('<Tab>', [\&bind_ex, 'Tab']);
 
@@ -506,7 +555,7 @@ sub bind {
     my $window = window();
     my $window0 = "w$window";
     if ($keysym eq 'Return') {
-        return if (scalar @{$window->{cmds}} > 0);
+        return if ($window->run);
         escape();
         my @cmds = quotewords('\|', 1,
             $opts{command} ? $opts{command} : $text->Contents);
@@ -516,7 +565,7 @@ sub bind {
         # command is escaped from here on
         $opts{command} = uri_escape($opts{command}) if ($opts{command});
 
-        my $vregions;
+        my $vlayout;
         my @vvals;
         my $dcmd0 = join(" | ", @cmds);
         $dcmd0 =~ s/^\s+|\s+$//g;
@@ -524,9 +573,8 @@ sub bind {
         for (my $i = 0; $i < scalar(@edargs); $i++) {
             my $edarg = $edargs[$i];
             if ($edarg =~ /^layout=(.*)/) {
-                my $layout = $1;
-                $layout =~ s/^['"]|['"]$|\s+//g;
-                $vregions = view_regions($layout, region->bbox);
+                $vlayout = $1;
+                $vlayout =~ s/^['"]|['"]$|\s+//g;
                 splice(@edargs, $i--, 1);
             }
             if ($edarg =~ /^view=(.*)/) {
@@ -567,18 +615,16 @@ sub bind {
             }
         }
 
+        my (@cservers, @vcmds);
         for (my $i = 0; $i < scalar(@vvals); $i++) {
             my $vval = $vvals[$i];
-            my $bbox = $vregions->[$i];
-            $bbox = region->bbox if (!defined $vval && scalar(@vvals) == 1);
-
             my @vservers;
             foreach my $dcmd (@dcmds) {
                 my $vdcmd = $dcmd;
                 $vdcmd =~ s/fV/$vval/g;
 
                 my $server;
-                foreach (values %servers, @vservers) {
+                foreach (values %servers, @cservers) {
                     if ($_->{cmd} eq $vdcmd) {
                         $server = $_;
                         last;
@@ -609,78 +655,69 @@ sub bind {
                     $server->{addr} = "$server->{host}:$server->{addr}"
                         if ($opts{tcp});
                 }
-                push(@vservers, $server)
+                push(@vservers, $server);
+                push(@cservers, $server);
             }
 
             my $vcmd = $vcmd0;
             $vcmd =~ s/fV/$vval/g;
             my @vargs = quotewords('\s+', 1, $vcmd);
-            my $vtype = shift @vargs;
-            unshift(@vargs, "--conf $_=$opts{$_}") foreach (qw(lib_dir anon_key));
+            my $type = shift @vargs;
+            unshift(@vargs, "--conf $_=$opts{$_}")
+                foreach (qw(lib_dir anon_key));
             unshift(@vargs, "--");
-
-            # do not change this to alphabetical order
-            foreach (qw(swidth sheight sx sy)) {
-                unshift(@vargs, "--$_=" . shift(@{$bbox}));
-            }
             foreach (qw(smaxx smaxy)) {
                 unshift(@vargs, "--$_=" . $opts{$_});
             }
-            unshift(@vargs, "--view=$vtype");
+            unshift(@vargs, "--view=$type");
+            unshift(@vargs, "--passive") if ($opts{passive});
             unshift(@vargs, "--tcp") if ($opts{tcp});
-            unshift(@vargs, "--vgeometry=$opts{vgeometry}") if ($opts{vgeometry});
+            unshift(@vargs, "--vgeometry=$opts{vgeometry}")
+                if ($opts{vgeometry});
             if ($opts{frame}) {
                 unshift(@vargs, "--frame");
                 unshift(@vargs, "--theight=$opts{theight}");
                 unshift(@vargs, "--twidth=$opts{twidth}");
             }
             unshift(@vargs, "savors-view");
-            $window->run(join(" ", @vargs));
+            push(@vcmds, [join(" ", @vargs), \@vservers]);
+        }
+        $window->run(\@vcmds, $vlayout);
+        $window->update;
 
-            foreach my $server (@vservers) {
-                $window->server($server);
-                if (!defined $server->{socket}) {
-                    my $sock;
-                    if ($opts{tcp}) {
-                        $sock = IO::Socket::INET->new(
-                            Blocking => 0,
-                            PeerAddr => $server->{addr},
-                            Proto => 'tcp',
-                        );
-                    } else {
-                        $sock = IO::Socket::UNIX->new(
-                            Peer => $server->{addr},
-                        );
-                        $sock->blocking(0);
-                    }
-                    sleep 0.1 while (!$sock->connected);
-                    $server->{socket} = $sock;
-                    $servers{$sock} = $server;
-                    if ($opts{command}) {
-                        $mux->add($sock);
-                    } else {
-                        $top->fileevent($sock, 'readable', [\&readable, $sock]);
-                    }
-                    syswrite($sock, "join console\n");
+        foreach my $server (@cservers) {
+            if (!defined $server->{socket}) {
+                my $sock;
+                if ($opts{tcp}) {
+                    $sock = IO::Socket::INET->new(
+                        Blocking => 0,
+                        PeerAddr => $server->{addr},
+                        Proto => 'tcp',
+                    );
+                } else {
+                    $sock = IO::Socket::UNIX->new(
+                        Peer => $server->{addr},
+                    );
+                    $sock->blocking(0);
                 }
+                sleep 0.1 while (!$sock->connected);
+                $server->{socket} = $sock;
+                $servers{$sock} = $server;
+                $top->fileevent($sock, 'readable', [\&readable, $sock]);
+                syswrite($sock, "join console\n");
             }
-            foreach my $socks (@{$window->{sockets}}) {
-                foreach (values %{$socks}) {
-                    if ($opts{command}) {
-                        $mux->add($_) 
-                    } else {
-                        $top->fileevent($_, 'readable', [\&readable, $_]);
-                    }
-                    $windows{$_} = $window;
-                }
-            }
-            if ($opts{frame} && !$opts{command}) {
-                # keep console focus after spawning window
-                $top->bind('<FocusOut>', sub {
-                    $text->focusForce;
-                    $top->bind('<FocusOut>', undef);
-                });
-            }
+        }
+        my $sockets = $window->send;
+        foreach (@{$sockets}) {
+            $top->fileevent($_, 'readable', [\&readable, $_]);
+            $windows{$_} = $window;
+        }
+        if ($opts{frame} && !$opts{command}) {
+            # keep console focus after spawning window
+            $top->bind('<FocusOut>', sub {
+                $text->focusForce;
+                $top->bind('<FocusOut>', undef);
+            });
         }
     } elsif ($keysym eq 'Control-c') {
         quit_window($window);
@@ -688,7 +725,7 @@ sub bind {
         $text->delete('insert');
     } elsif ($keysym eq 'Escape') {
         escape();
-    } elsif ($window->{insert}) {
+    } elsif ($window->insert) {
         if ($char =~ /[[:print:]]/) {
             $text->InsertKeypress($char);
         } elsif ($keysym eq 'BackSpace') {
@@ -697,12 +734,12 @@ sub bind {
         insert_help();
     } elsif ($char eq 'a') {
         $text->SetCursor($text->index('insert+1c'));
-        $window->{insert} = 1;
+        $window->insert(1);
         $status->itemconfigure('insert', -state, 'normal');
         insert_help();
     } elsif ($char eq 'A') {
         $text->SetCursor($text->index('insert lineend'));
-        $window->{insert} = 1;
+        $window->insert(1);
         $status->itemconfigure('insert', -state, 'normal');
         insert_help();
     } elsif ($char =~ /[bB]/) {
@@ -741,12 +778,12 @@ sub bind {
         layout->left;
         update();
     } elsif ($char eq 'i') {
-        $window->{insert} = 1;
+        $window->insert(1);
         $status->itemconfigure('insert', -state, 'normal');
         insert_help();
     } elsif ($char eq 'I') {
         $text->SetCursor($text->index('insert linestart'));
-        $window->{insert} = 1;
+        $window->insert(1);
         $status->itemconfigure('insert', -state, 'normal');
         insert_help();
     } elsif ($char eq 'j' || $keysym eq 'Down') {
@@ -784,6 +821,13 @@ sub bind {
         #TODO: remove layout
     } elsif ($char =~ /[sS]/) {
         region->split($char eq 'S' ? 0 : 1);
+    } elsif ($char eq 't') {
+        # advance all paused servers to next time
+        step_time();
+    } elsif ($char eq 'u') {
+        $text->undo;
+    } elsif ($char eq 'U') {
+        $text->redo;
     } elsif ($char =~ /[wW]/) {
         my $re = $char eq 'w' ? '\W\w' : '\s\S';
         my $index = $text->search(-regexp, $re, 'insert', 'insert lineend');
@@ -796,30 +840,16 @@ sub bind {
         $text->delete('insert');
     } elsif ($char eq 'X') {
         region->remove;
+        # may have more window sockets when region expanded to new display
+        my $sockets = window->send;
+        $top->fileevent($_, 'readable', [\&readable, $_]) foreach (@{$sockets});
         update();
     } elsif ($char =~ /[yY]/) {
         $clipboard = $text->Contents;
         $clipboard =~ s/^\s+|\s*\|\s*$|\s*$//sg;
         $clipboard =~ s/\n.*//sg if ($char eq 'y');
     } elsif ($char eq 'z') {
-        my %pause = map {$_->{pause} => 1} values(%{$window->{servers}});
-        my %sync = map {$_->{sync} => 1} values(%{$window->{servers}});
-        my $pause = $pause{0} ? 1 : 0;
-        # (un-)pause window's data servers
-        $_->{pause} = $pause foreach (values %{$window->{servers}});
-        delete $sync{0};
-        foreach my $server (values %servers) {
-            # (un-)pause data servers in same non-zero sync groups
-            $server->{pause} = $pause if ($sync{$server->{sync}});
-        }
-        if (!$pause) {
-            # advance all related sync groups
-            step($_) foreach (keys %sync);
-            foreach my $server (values %{$window->{servers}}) {
-                step($server) if ($server->{sync} == 0);
-            }
-        }
-        update();
+        pause($window);
     } elsif ($char eq 'Z') {
         my %pause = map {$_->{pause} => 1} values(%servers);
         my %sync = map {$_->{sync} => 1} values(%servers);
@@ -894,6 +924,12 @@ sub bind_ex {
             $window->save($file);
             $ex->Contents("");
             $text->focus;
+        } elsif ($cmd =~ /^S\s+(\S.*)/) {
+            my $file = $1;
+            my $layout = layout();
+            $layout->save($file);
+            $ex->Contents("");
+            $text->focus;
         } elsif ($cmd =~ /^w\s+(\w+)/) {
             my $name = $1;
             my $save = $text->Contents;
@@ -930,9 +966,9 @@ sub bind_ex {
 #### escape ####
 ################
 sub escape {
-    if (window->{insert}) {
+    if (window->insert) {
         $text->SetCursor($text->index('insert-1c'));
-        window->{insert} = 0;
+        window->insert(0);
         $status->itemconfigure('insert', -state, 'hidden');
         $help_text->Contents($help{bind});
     }
@@ -965,30 +1001,44 @@ sub insert_help_ex {
     } else {
         my $prefix = $cmd =~ /^:r\s+(\w+)/ ? $1 : "";
         my $help =
-            "USAGE: env OPT=VAL... (ARGS... |...) |VIEW ...\n\nSAVED VIEWS:\n";
+            "USAGE: env OPT=VAL... (ARGS... |...) |VIEW --opt=val...\n\nSAVED VIEWS:\n";
         my @saves = grep(/^save_$prefix/, keys %conf);
         @saves = map {s/^save_//; $_} @saves;
         my $smax = max(map {length} @saves);
         my $cmax = 80 - $smax;
         foreach my $name (sort @saves) {
             $cmd = $conf{"save_$name"};
-            $cmd = substr($cmd, 0, $cmax) . "..." if (length $cmd > $cmax);
+    #        $cmd = substr($cmd, 0, $cmax) . "..." if (length $cmd > $cmax);
             $help .= " " x (4 + $smax - length($name)) . "$name - $cmd\n";
         }
         $help_text->Contents($help);
     }
 }
 
-###################
-#### mux_input ####
-###################
-sub mux_input {
-    my $self = shift;
-    my $mux = shift;
-    my $fh = shift;
-    my $in_ref = shift;
-
-    process($fh, $1) while ($$in_ref =~ s/^(.*?)\r?\n//);
+###############
+#### pause ####
+###############
+sub pause {
+    my $window = shift;
+        my @servers = values %{$window->server};
+        my %pause = map {$_->{pause} => 1} @servers;
+        my %sync = map {$_->{sync} => 1} @servers;
+        my $pause = $pause{0} ? 1 : 0;
+        # (un-)pause window's data servers
+        $_->{pause} = $pause foreach (@servers);
+        delete $sync{0};
+        foreach my $server (@servers) {
+            # (un-)pause data servers in same non-zero sync groups
+            $server->{pause} = $pause if ($sync{$server->{sync}});
+        }
+        if (!$pause) {
+            # advance all related sync groups
+            step($_) foreach (keys %sync);
+            foreach my $server (@servers) {
+                step($server) if ($server->{sync} == 0);
+            }
+        }
+        update();
 }
 
 #################
@@ -1021,9 +1071,8 @@ sub process {
         # color data can be sent from both views and servers
         if ($server) {
             foreach my $window (values %windows) {
-                if ($window->{servers}->{$server}) {
-                    $cwindows{$window} = $window;
-                }
+                my $vservers = $window->server;
+                $cwindows{$window} = $window if ($vservers->{$server});
             }
         } else {
             my $window = $windows{$fh};
@@ -1054,7 +1103,7 @@ sub process {
             );
         }
     } elsif ($msg =~ /^focus/) {
-        next if ($opts{command});
+        return if ($opts{command});
         # a view has gotten the focus
         $text->focusForce;
     } elsif ($msg =~ /^leave(\s+display)?/) {
@@ -1062,19 +1111,37 @@ sub process {
         # a view/display has died
         if ($display) {
             delete $windows{$fh};
-            if ($opts{command}) {
-                $mux->remove($fh);
-            } else {
-                $top->fileevent($fh, 'readable', '');
-            }
+            $top->fileevent($fh, 'readable', '');
         } else {
             my $window = $windows{$fh};
             quit_window($window);
             quit() if ($opts{command});
         }
+    } elsif ($msg =~ /^pause/) {
+        my $window = $windows{$fh};
+        pause($window);
     } elsif ($msg =~ /^save/) {
         my $window = $windows{$fh};
         $window->save($opts{snap_file});
+    } elsif ($msg =~ /^server\s+(\S+)/) {
+        # passive view needs server connection
+        my $addr = $1;
+        foreach my $server (values %servers) {
+            if ($server->{addr} eq $addr) {
+                my $window;
+                if ($opts{tcp}) {
+                    $window = $fh->peerhost . ":" . $fh->peerport;
+                } else {
+                    $window = $fh->peerpath;
+                }
+                syswrite($server->{socket}, "join $window\n");
+                last;
+            }
+        }
+    } elsif ($msg =~ /^step_time/) {
+        step_time();
+    } elsif ($msg =~ /^step/) {
+        step();
     }
 }
 
@@ -1099,37 +1166,28 @@ sub quit {
 #####################
 sub quit_window {
     my $window = shift;
-    my @socks = @{$window->{sockets}};
+    my $sockets = $window->send;
+    my $vservers = $window->server;
     $window->remove;
-    foreach my $socks (@{$window->{sockets}}) {
-        foreach (values %{$socks}) {
-            delete $windows{$_};
-            if ($opts{command}) {
-                $mux->remove($_);
-            } else {
-                $top->fileevent($_, 'readable', '');
-            }
-        }
+    foreach (@{$sockets}) {
+        delete $windows{$_};
+        $top->fileevent($_, 'readable', '');
     }
     $legend->delete("w$window") if (!$opts{command});
 
     my %step;
-    foreach my $server (values %{$window->{servers}}) {
-        delete $window->{servers}->{$server};
+    foreach my $server (values %{$vservers}) {
         my $last = 1;
-        foreach my $win (values %windows) {
-            if ($win->{servers}->{$server}) {
+        foreach (values %windows) {
+            my $vservers2 = $_->server;
+            if ($vservers2->{$server}) {
                 $last = 0;
                 last;
             }
         }
         if ($last) {
             my $sock = $server->{socket};
-            if ($opts{command}) {
-                $mux->remove($sock);
-            } else {
-                $top->fileevent($sock, 'readable', '');
-            }
+            $top->fileevent($sock, 'readable', '');
             syswrite($sock, "leave console\n");
             delete $servers{$sock};
         } else {
@@ -1206,28 +1264,76 @@ sub step {
             if (!defined $group && $server->{pause} || $sync == $group);
     }
     foreach my $server (@{$step{0}}) {
+        # unsynchronized servers in sync group 0 always proceed
         syswrite($server->{socket}, "ready\n");
         $server->{last} = $time;
+        $snaps{0} = $server->{time} if (!defined $snaps{0});
+        if ($opts{snap} && $server->{time} - $snaps{0} >= $opts{snap}) {
+            layout->save($opts{snap_file} . ".s0." . $server->{time} . ".ps");
+            $snaps{0} = $server->{time};
+        }
     }
     delete $step{0};
     foreach my $key (keys %step) {
         my @order = sort sort_time @{$step{$key}};
         next if ($order[0]->{last} == 1E99);
         if ($order[0]->{data}->[0]->[0] eq 'savors_eof') {
+            if ($opts{snap}) {
+                # save at eof
+                layout->save($opts{snap_file} . ".s$key." . $order[0]->{time} . ".ps");
+            }
             $order[0]->{time} = 1E99;
             $order[0]->{last} = 1E99;
         } else {
+            $snaps{$key} = $order[0]->{time} if (!defined $snaps{$key});
+            if ($opts{snap} && $order[0]->{time} - $snaps{$key} >= $opts{snap}) {
+                layout->save($opts{snap_file} . ".s$key." . $order[0]->{time} . ".ps");
+                $snaps{$key} = $order[0]->{time};
+            }
             $order[0]->{last} = $time;
             syswrite($order[0]->{socket}, "ready\n");
         }
     }
 }
 
+###################
+#### step_time ####
+###################
+my $step_time = 0;
+sub step_time {
+    # prevent multiple instances running simultaneously due to DoOneEvent
+    return if ($step_time);
+    $step_time = 1;
+
+    my $time0 = 1E99;
+    my @step;
+    foreach my $server (values %servers) {
+        my $sync = $server->{sync};
+        if ($server->{pause}) {
+            push(@step, $server);
+            $time0 = $server->{time} if ($server->{time} < $time0);
+        }
+    }
+
+    while ($time0 < 1E99) {
+        step();
+        my $time = 1E99;
+        foreach my $server (@step) {
+            $time = $server->{time} if ($server->{time} < $time);
+        }
+        last if ($time > $time0);
+        # process Tk events or new server data will never be processed
+        DoOneEvent;
+    }
+    $step_time = 0;
+}
+
 ################
 #### update ####
 ################
 sub update {
-    my %pause = map {$_->{pause} => 1} values(%{window->{servers}});
+    my $vservers = window->server;
+    my %pause = map {$_->{pause} => 1} values %{$vservers};
     my $all = $pause{0} || !defined $pause{1} ? 'hidden' : 'normal';
     my $one = $pause{0} && $pause{1} ? 'normal' : 'hidden';
     my $txt = $pause{1} ? 'normal' : 'hidden';
@@ -1237,7 +1343,7 @@ sub update {
         $status->itemconfigure('pause', -state, $txt);
     }
 
-    my %sync = map {$_->{sync} => 1} values(%{window->{servers}});
+    my %sync = map {$_->{sync} => 1} values %{$vservers};
     delete $sync{0};
     my @group;
     foreach my $server (values %servers) {
@@ -1296,62 +1402,207 @@ sub uri_escape {
     return $text;
 }
 
-#########################
-#### view_subregions ####
-#########################
-sub view_subregions {
-    my $layout = shift;
-    my $subs = shift;
-    my ($sub, $rem, $pre) = extract_bracketed($layout, '(', '[x\s\d\|\-]*');
-    if ($sub) {
-        $sub =~ s/^.|.$//g;
-        my $key = "s" . $subs->{n}++;
-        $subs->{$key} = $sub;
-        return $pre . $key . view_subregions($rem, $subs);
-    } else {
-        return $layout;
-    }
+# This chunk of stuff was generated by App::FatPacker. To find the original
+# file's code, look for the end of this BEGIN block or the string 'FATPACK'
+BEGIN {
+my %fatpacked;
+
+$fatpacked{"Tk/TextHighlight/Savors.pm"} = '#line '.(1+__LINE__).' "'.__FILE__."\"\n".<<'TK_TEXTHIGHLIGHT_SAVORS';
+  package Tk::TextHighlight::Savors;
+  
+  use strict;
+  
+  use base qw(Tk::TextHighlight::Template);
+  
+  our $VERSION = 2.2;
+  
+  # solarized colors
+  my $yellow = "#b58900";
+  my $orange = "#cb4b16";
+  my $red = "#dc322f";
+  my $magenta = "#d33682";
+  my $violet = "#6c71c4";
+  my $blue = "#268bd2";
+  my $cyan = "#2aa198";
+  my $green = "#859900";
+  
+  my %directive = map {$_ => 1}
+      qw(color ctype cut data grep grep_v host label label_grep layout OPT repeat
+         replay sed split sync tee tee_a time time_grep view);
+  
+  my %option = map {$_ => 1}
+      qw(attr cdefault color count ctype dash date face fields fields2 file
+         font grep hex label label2 legend lines max max2 min min2 ngram no-tags
+         opt period show size splits swap tags timeout title type type2 xfields
+         yfields);
+  
+  my %view = map {$_ => 1}
+      qw(axis chart cloud env graph grid map rain tree VIEW);
+  
+  sub new {
+      my ($proto, $rules) = @_;
+      my $class = ref($proto) || $proto;
+      if (!defined($rules)) {
+          $rules = [
+              ['Text'],
+              ['Directive', -foreground => $blue],
+              ['Field',  -foreground => $violet],
+              ['Operator', -foreground => $yellow],
+              ['Option', -foreground => $cyan],
+              ['String1', -foreground => $red],
+              ['String2', -foreground => $red],
+              ['Variable',  -foreground => $magenta],
+              ['View', -foreground => $green],
+          ];
+      }
+      my $self = $class->SUPER::new($rules);
+      bless($self, $class);
+      $self->callbacks({
+          'Directive' => \&other,
+          'Field' => \&other,
+          'Operator' => \&other,
+          'Option' => \&other,
+          'String1' => \&string1,
+          'String2' => \&string2,
+          'Text' => \&text,
+          'Variable' => \&other,
+          'View' => \&other,
+      });
+      $self->stackPush('Text');
+      return $self;
+  }
+  
+  sub other {
+      my ($self, $text) = @_;
+      return $self->parserError($text);
+  }
+  
+  sub string1 {
+      my ($self, $text) = @_;
+      if ($text =~ s/^(f(L|\d+))(?=\W)//o) {
+          $self->snippetParse($1, 'Field');
+      } elsif ($text =~ s/^(')//o) {
+          $self->snippetParse($1);
+          $self->stackPull;
+      } elsif ($text =~ s/^([^\w\s])//o) {
+          $self->snippetParse($1);
+      } elsif ($text =~ s/^([\w\s]+)//o) {
+          $self->snippetParse($1);
+      } else {
+          return $self->parserError($text);
+      }
+      return $text;
+  }
+  
+  sub string2 {
+      my ($self, $text) = @_;
+      if ($text =~ s/^(f(L|\d+))(?=\W)//o) {
+          $self->snippetParse($1, 'Field');
+      } elsif ($text =~ s/^(")//o) {
+          $self->snippetParse($1);
+          $self->stackPull;
+      } elsif ($text =~ s/^([^\w\s])//o) {
+          $self->snippetParse($1);
+      } elsif ($text =~ s/^([\w\s]+)//o) {
+          $self->snippetParse($1);
+      } else {
+          return $self->parserError($text);
+      }
+      return $text;
+  }
+  
+  sub text {
+      my ($self, $text) = @_;
+      if ($text =~ s/^(\s+)//o) {
+          $self->snippetParse($1);
+      } elsif ($text =~ s/^(')//o) {
+          $self->stackPush('String1');
+          $self->snippetParse($1);
+      } elsif ($text =~ s/^(")//o) {
+          $self->stackPush('String2');
+          $self->snippetParse($1);
+      } elsif ($text =~ s/^(f(L|\d+))(?=\W)//o) {
+          $self->snippetParse($1, 'Field');
+      } elsif ($text =~ s/^(--)(\w+)(-\w+)?//o) {
+          $self->snippetParse($1, 'Operator');
+          my $type = $option{"$2$3"} ? 'Option' : undef;
+          $self->snippetParse($2, $type);
+          if (defined $3) {
+              my $s = substr($3, 1);
+              $self->snippetParse("-", 'Operator');
+              $self->snippetParse($s, $type);
+          }
+      } elsif ($text =~ s/^([^\w\s])//o) {
+          $self->snippetParse($1, 'Operator');
+      } elsif ($text =~ s/^(\w*)(f[DV])//o) {
+          $self->snippetParse($1) if ($1);
+          $self->snippetParse($2, 'Variable');
+      } elsif ($text =~ s/^(\w+)//) {
+          my $s = $1;
+          if ($directive{$s} && $text =~ /^(\=)/) {
+              $self->snippetParse($s, 'Directive');
+          } elsif ($view{$s} && $text =~ /^\s/) {
+              $self->snippetParse($s, 'View');
+          } else {
+              $self->snippetParse($s);
+          }
+      } else {
+          # should not reach here
+          return $self->parserError($text);
+      }
+      return $text;
+  }
+  
+  # override snippetParse to fix bug in Tk::TextHighlight::Template v0.3
+  sub snippetParse {
+      my $hlt = shift;
+      my $snip = shift;
+      my $attr = shift;
+      unless (defined($snip)) { $snip = $hlt->snippet }
+      unless (defined($attr)) { $attr = $hlt->stackTop }
+      my $out = $hlt->{'out'};
+      # below was just $snip in original, which fails for string "0"
+      if (length($snip)) {
+          push(@$out, length($snip), $attr);
+          $hlt->snippet('');
+      }
+  }
+
+  1;
+  
+TK_TEXTHIGHLIGHT_SAVORS
+
+s/^  //mg for values %fatpacked;
+
+my $class = 'FatPacked::'.(0+\%fatpacked);
+no strict 'refs';
+*{"${class}::files"} = sub { keys %{$_[0]} };
+
+if ($] < 5.008) {
+  *{"${class}::INC"} = sub {
+     if (my $fat = $_[0]{$_[1]}) {
+       return sub {
+         return 0 unless length $fat;
+         $fat =~ s/^([^\n]*\n?)//;
+         $_ = $1;
+         return 1;
+       };
+     }
+     return;
+  };
 }
 
-######################
-#### view_regions ####
-######################
-sub view_regions {
-    my $layout0 = shift;
-    my $bbox = shift;
-    my $subs = {};
-    my $all = [];
-    my $layout = view_subregions($layout0, $subs);
-
-    if ($layout =~ /-/) {
-        my @regions = split(/-/, $layout);
-        my $sheight = $bbox->[1] / scalar(@regions);
-        for (my $i = 0; $i < scalar(@regions); $i++) {
-            $regions[$i] =~ s/^(\d+)$/$1x1/;
-            $regions[$i] =~ s/^(s\d+)$/$subs->{$1}/;
-            push(@{$all}, @{view_regions($regions[$i],[$bbox->[0], $sheight,
-                $bbox->[2], $bbox->[3] + $i * $sheight])});
-        }
-    } elsif ($layout =~ /\|/) {
-        my @regions = split(/\|/, $layout);
-        my $swidth = $bbox->[0] / scalar(@regions);
-        for (my $i = 0; $i < scalar(@regions); $i++) {
-            $regions[$i] =~ s/^(\d+)$/1x$1/;
-            $regions[$i] =~ s/^(s\d+)$/$subs->{$1}/;
-            push(@{$all}, @{view_regions($regions[$i], [$swidth, $bbox->[1],
-                $bbox->[2] + $i * $swidth, $bbox->[3]])});
-        }
-    } elsif ($layout =~ /(\d+)x(\d+)/) {
-        my ($c, $r) = ($1, $2);
-        my $swidth = $bbox->[0] / $c;
-        my $sheight = $bbox->[1] / $r;
-        for (my $i = 0; $i < $r; $i++) {
-            for (my $j = 0; $j < $c; $j++) {
-                push(@{$all}, [$swidth, $sheight,
-                    $bbox->[2] + $j * $swidth, $bbox->[3] + $i * $sheight]);
-            }
-        }
+else {
+  *{"${class}::INC"} = sub {
+    if (my $fat = $_[0]{$_[1]}) {
+      open my $fh, '<', \$fat
+        or die "FatPacker error loading $_[1] (could be a perl installation issue?)";
+      return $fh;
     }
-    return $all;
+    return;
+  };
 }
+
+unshift @INC, bless \%fatpacked, $class;
+  } # END OF FATPACK CODE
 

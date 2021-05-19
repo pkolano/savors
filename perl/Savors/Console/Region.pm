@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2010 United States Government as represented by the
+# Copyright (C) 2010-2021 United States Government as represented by the
 # Administrator of the National Aeronautics and Space Administration
 # (NASA).  All Rights Reserved.
 #
@@ -41,8 +41,9 @@ use Time::HiRes qw(time);
 
 use base qw(Savors::Console::Level);
 use Savors::Console::Window;
+use Savors::Debug;
 
-our $VERSION = 0.20;
+our $VERSION = 2.2;
 
 #############
 #### new ####
@@ -61,14 +62,6 @@ sub new {
     $self->create;
 
     return $self;
-}
-
-##############
-#### bbox ####
-##############
-sub bbox {
-    my $self = shift;
-    return $self->{parent}->bbox($self);
 }
 
 ################
@@ -157,8 +150,45 @@ sub overlap {
 ################
 sub remove {
     my $self = shift;
+    my $skip = shift;
     $_->remove foreach (@{$self->{children}});
-    $self->{parent}->remove($self);
+    $self->{parent}->remove($self) if (!defined $skip);
+}
+
+#############
+#### run ####
+#############
+sub run {
+    my $self = shift;
+    my $cmds = shift;
+    $self->{children}->[$self->{current}]->run([shift @{$cmds}]);
+} 
+
+##############
+#### save ####
+##############
+sub save {
+    my $self = shift;
+    my $file = shift;
+    $self->{children}->[$self->{current}]->save($file);
+}
+
+##############
+#### send ####
+##############
+sub send {
+    my $self = shift;
+    my $msg = shift;
+    return $self->{children}->[$self->{current}]->send($msg);
+}
+
+################
+#### server ####
+################
+sub server {
+    my $self = shift;
+    my $server = shift;
+    return $self->{children}->[$self->{current}]->server($server);
 }
 
 ###############

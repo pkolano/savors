@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2010 United States Government as represented by the
+# Copyright (C) 2010-2021 United States Government as represented by the
 # Administrator of the National Aeronautics and Space Administration
 # (NASA).  All Rights Reserved.
 #
@@ -39,7 +39,15 @@ package Savors::Console::Level;
 use strict;
 use Time::HiRes qw(time);
 
-our $VERSION = 0.21;
+our $VERSION = 2.2;
+
+##############
+#### bbox ####
+##############
+sub bbox {
+    my $self = shift;
+    return $self->{parent}->bbox($self);
+}
 
 ##############
 #### blur ####

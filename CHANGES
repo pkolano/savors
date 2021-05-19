@@ -45,3 +45,39 @@ CHANGES
     - Removed prerequisite Number::Fraction
     - Removed prerequisite GeoIP C API
 
+* Savors 2.2 (5/18/21)
+    - Added full man pages for all aspects
+    - Added non-XS module dependencies via App::FatPacker to simplify install
+    - Added ability to specify absolute or relative size in --legend 
+    - Added --legend-pt option to change legend font size
+    - Added snapshots of current layout with automatic postscript stitching
+    - Added --snap to take periodic snapshots during console-less operation
+    - Added configurable snapshot location via --snap-file
+    - Added --passive to reverse connections from data server to views
+    - Added configurable statistical aggregation to chart view via --form
+    - Added histomap and weighted map layouts to tree view with --[xy]fields
+    - Added crc() convenience function for --ctype hash specifications
+    - Added optional low/high values to --ctype heat specifications
+    - Added better end of stream detection to efficiently handle static data
+    - Added pause and step during console-less operation
+    - Added syntax highlighting to console editor and help regions
+    - Added unlimited undo/redo to console editor
+    - Added ability to step all data servers to next time via binding "t"
+    - Added chart option to fix y axis scale instead of dynamically scaling
+    - Added ability to show same data columns with different labels in grid view
+    - Fixed inadvertent globbing during data command invocation
+    - Fixed handling of xml metacharacters causing exception in tree view
+    - Fixed overrun of rain view into legend for text longer than visible canvas
+    - Fixed layout directive during console-less operation
+    - Fixed windows in split regions showing at full size until another split
+    - Fixed use of deprecated python PIL method in cloud view
+    - Fixed non-determinism in graphs causing mismatched views on multi-displays
+    - Fixed omitted view arguments causing missized regions on multi-displays
+    - Fixed region removes causing expansion onto additional physical displays
+    - Changed from GeoIP database to IP2Location due to more favorable licensing
+    - Changed highlight of current region in console from white border to fill
+    - Changed embedded IP::Anonymous module to use XXTEA for easier embedding
+    - Removed green-cyan transition from palette as hard to distinguish
+    - Removed associated conference paper from doc
+    - Removed ipstate2() convenience function as not available in IP2Location
+

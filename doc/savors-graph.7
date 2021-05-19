@@ -1,0 +1,141 @@
+.TH "savors-graph" "7" "18 May 2021" "" ""
+./"################################################################
+.SH "NAME"
+./"################################################################
+\fBsavors-graph\fP \(em plot common graph types showing relationships
+between data fields
+./"################################################################
+.SH "SYNOPSIS"
+./"################################################################
+.nf
+env OPT=VAL... (ARGS... |...) |graph --opt=val...
+.fi
+.PP
+Display a graph view based on the given data pipeline.
+./"################################################################
+.SH "DESCRIPTION"
+./"################################################################
+The graph view type plots pairs of data line items as nodes within a
+directed graph.  Edges will be drawn from the first field to the second,
+but can be swapped using a dynamically evaluated expression.  Nodes can
+be arranged in any of eight different subtypes.  Note that automatic
+layout of large graphs is computationally expensive so may timeout
+and/or cause other views to stall while the graph is being produced.
+./"################################################################
+.SH "SUBTYPES"
+./"################################################################
+The graph view has eight subtypes.
+.IP circo
+Plot nodes in a circular layout with minimized edge crossings.
+.IP dot
+Plot nodes in a hierarchical layout.
+.IP easy
+Plot nodes using a traditional graph with a grid layout.
+.IP fdp
+Plot nodes using a spring layout.
+.IP neato
+Plot nodes using a spring layout with better support for clusters and
+cyclic subgraphs.
+.IP sequence
+Plot nodes as sequence diagrams where nodes are represented as vertical
+lines and directed edges are drawn horizontally in order of appearance.
+.IP sfdp
+Plot nodes using a spring layout with better support for large
+graph rendering.
+.IP twopi
+Plot nodes in a radial layout where one node is used as the center and
+remaining nodes are placed on a sequence of concentric circles.
+./"################################################################
+.SH "OPTIONS SUMMARY"
+./"################################################################
+The following options are specific to the graph view.  See savors-view(7)
+for additional options that are available to all views.  Defaults are
+shown in brackets.  The \(cq\&=\(cq\& for options that take a parameter
+is optional; whitespace may be used instead.  Detailed descriptions are
+given in following sections.
+.PP
+.nf
+\-\-cdefault=COLOR default node/edge color [#99CC00]
+\-\-label=EVAL     expression to label edges by
+\-\-swap=EVAL      condition to reverse edge
+\-\-timeout=INT    easy layout timeout [60]
+\-\-type=TYPE      type of graph [twopi]
+.fi
+./"################################################################
+.SH "OPTIONS"
+./"################################################################
+See savors-view(7) for detailed descriptions of the options that
+are available to all views.
+.IP "\fB\-\-cdefault=COLOR\fP"
+An RGB hex color in the form "#XXXXXX" where X is a hex digit
+indicating the default color for nodes and edges when coloring is not
+otherwise specified.  The default is "#99CC00".
+.IP "\fB\-\-label=EVAL\fP"
+A Savors expression (see savors-expr(7)) that will be evaluated against
+each data line to determine the label that should be shown for the edge
+created.  By default, no label is shown.
+.IP "\fB\-\-swap=EVAL\fP"
+A Savors expression (see savors-expr(7)) that will be evaluated against
+each data line to determine if the edge between nodes should be reversed.
+Edges will be reversed for non-zero, non-empty values.
+.IP "\fB\-\-timeout=INT\fP"
+An integer indicating the maximum number of seconds to wait for the
+graph layout to complete for the "easy" subtype.  The default is 60.
+.IP "\fB\-\-type=TYPE\fP"
+The type of graph to plot with supported values of circo, dot, easy,
+fdp, neato, sequence, sfdp, and twopi (see "Subtypes" above).  The
+default is twopi.
+./"################################################################
+.SH "EXAMPLES"
+./"################################################################
+Show a graph of current TCP connectivity between hosts in easy format.
+In this example, the ss command is invoked every 15 seconds.  The
+relevant output is parsed out and separated by whitespace and colons
+into fields.  The local and remote hosts become the nodes of the graph
+with a heuristic for edge direction that the origin of a connection 
+will typically be the one with a high numbered ephemeral port.
+.PP
+.RS
+.nf
+env repeat=15 split='\s+|\s*:\s*' label_grep='^State' grep_v='^State' ss -nrt \\
+    |graph --type=easy --fields=f4,f6 --period=10 --swap='f7>10000'
+.fi
+.RE
+.PP
+Show a graph of parent-child relationships between processes running
+on the local system in twopi format.  In this example, the ps command is
+invoked every 15 seconds with a custom format for each process showing
+the user, pid, parent pid, and command name.  Edges are colored
+according to the command and labeled by user and command.
+.PP
+.RS
+.nf
+env repeat=15 grep_v='^USER' ps -Nu root -o user,pid,ppid,comm \\
+    |graph --type=twopi --color=f4 --fields=f3,f2 --period=10 --label='f1.":".f4'
+.fi
+.RE
+./"################################################################
+.SH "FILES"
+./"################################################################
+/etc/savorsrc
+.RS
+This file specifies various global configuration items including
+screen and geometry preferences, file paths, default options, and
+preconfigured views.  See savorsrc(5).
+.RE
+.PP
+$HOME/.savorsrc
+.RS
+This file specifies per user overrides of global configuration and
+saved views.  See savorsrc(5).
+.RE
+./"################################################################
+.SH "AUTHOR"
+./"################################################################
+Savors was written by Paul Kolano.
+./"################################################################
+.SH "SEE ALSO"
+./"################################################################
+savors(1), savors-axis(7), savors-chart(7), savors-cloud(7),
+savors-data(7), savors-expr(7), savors-grid(7), savors-map(7),
+savors-rain(7), savors-tree(7), savors-view(7), savorsrc(5)

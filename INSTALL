@@ -1,47 +1,46 @@
 Savors Installation and Configuration
 =====================================
 
-Savors has been successfully tested on Linux, OSX, and Windows under Cygwin.
+Savors has been successfully tested on Linux, OSX, Windows under Cygwin
+and Android under Debian fakeroot.
 
 
 1. Prerequisites
 
-    o Perl >= 5.7.3 and non-standard modules (with their prerequisites):
-        o Chart::Bars
-        o Data::RandomPerson
-        o Date::Parse
-        o GD
-        o Geo::IP
-        o Geo::ShapeFile
-        o Graph::Easy
-        o Graph::Easy::As_svg
-        o Graphics::ColorObject
-        o IO::Multiplex
-        o IO::Pty
-        o IP::Anonymous
-        o IPC::Run
-        o Lingua::StopWords
-        o Net::Nslookup
-        o Net::Server
-        o String::CRC
-        o String::ShellQuote
-        o Text::Balanced
-        o Tk
-        o Tk::AbstractCanvas
-        o Tie::IxHash
-        o Treemap
-        o XML::Simple
+    1.1. Required
 
-    o Python 2.x and non-standard modules (with their prerequisites):
-        o cython >= 0.16
-        o numpy
-        o PIL
+        o Perl >= 5.7.3 and non-standard modules (with their prerequisites):
+            o GD
+            o Imager
+            o IO::Pty
+            o Tk
 
-    o GeoLite City binary database (http://dev.maxmind.com/geoip/geolite)
+    1.2. Required for optional capabilities
 
-    o Graphviz (http://graphviz.org)
+        The bulk of Savors can run without these items, but they are
+        required for full functionality.
 
-    o Mscgen (http://www.mcternan.me.uk/mscgen)
+        1.2.1. Required for geolocation functions
+
+            These functions include ipcity(), ipcountry(),
+            ipcountry2(), iplat(), iplong(), ipstate(), and ipzip()
+
+            o IP2Location lite DB11 binary database (https://lite.ip2location.com/database/ip-country-region-city-latitude-longitude-zipcode-timezone)
+
+        1.2.2. Required for cloud view
+
+            o Python 2.x and non-standard modules (with their prerequisites):
+                o cython >= 0.16
+                o numpy
+                o PIL/pillow
+
+        1.2.3. Required for graph view types {circo,dot,fdp,neato,sfdp,twopi}
+
+            o Graphviz (http://graphviz.org)
+
+        1.2.4. Required for "sequence" graph view type
+
+            o Mscgen (http://www.mcternan.me.uk/mscgen)
 
 
 2. Preparation
@@ -65,11 +64,11 @@ Savors has been successfully tested on Linux, OSX, and Windows under Cygwin.
         configuration/execution either through the standard Python
         module directories or an appropriate value of $PYTHONPATH.
 
-    2.4. GeoLite City database
+    2.4. IP2Location lite DB11 binary database
 
-        The GeoLite City database must be uncompressed from gz/xz
-        format after download and placed in an appropriate directory
-        (e.g. /usr/share/GeoIP)
+        The IP2Location lite DB11 database must be uncompressed from zip
+        format after download and the file "IP2LOCATION-LITE-DB11.BIN"
+        placed in an appropriate directory (e.g. /usr/share/IP2Location)
 
 
 3. Installation
@@ -80,117 +79,14 @@ Savors has been successfully tested on Linux, OSX, and Windows under Cygwin.
     (defaults to /usr/local/lib/perl5/site_lib/$PERLVER), and the full
     path to the uncompressed GeoLiteCity database (geolocation functions
     unusable if not given).  For example, the following would install
-    Savors into /usr using the GeoLite City database in
-    /usr/share/GeoIP:
+    Savors into /usr using the IP2Location DB11 database in
+    /usr/share/IP2Location:
 
-        ./configure --prefix=/usr --citydb=/usr/share/GeoIP/GeoLiteCity.dat
+        ./configure --prefix=/usr --geodb=/usr/share/IP2Location/IP2LOCATION-LITE-DB11.BIN
         make
         make install
 
 
-4. Configuration
+4. Configuration and Usage
 
-    Settings global to all users can be placed in /etc/savorsrc.
-    Settings local to a single user can be placed in ~/.savorsrc and
-    will override global settings.  Some settings such as the geometry
-    and save_X settings will be stored in ~/.savorsrc when changed
-    within the console with the old file moved to ~/.savorsrc~.
-
-    4.1. anon_key
-
-        The anon_key setting (e.g. anon_key examplekey) specifies the
-        string to use for anonymizing IP addresses and host/user names.
-        This setting is only intended for ~/.savorsrc.
-
-    4.2. debug_file
-
-        The debug_file setting (e.g. debug_file /home/user1/dbg.txt)
-        specifies the destination file for debug output.  Note
-        that this setting only has an effect when debug lines are
-        manually placed within the code.  This setting is only
-        intended for ~/.savorsrc.
-
-    4.3. displays
-
-        The displays setting (e.g. displays localhost:0,mon2:0)
-        specifies a comma-separated list of host:display pairs to use
-        for the given layout specified by the wall setting.  This
-        setting is only intended for ~/.savorsrc.
-
-    4.4. font_size
-
-        The font_size setting (e.g. font_size 16) specifies the font
-        size of the console editor and related items.
-
-    4.5. frame
-
-        The frame setting (e.g. frame 1) specifies that window frames
-        should be used on all view windows.  By default, window frames
-        are not used, which conserves space, but does not allow windows
-        to be manipulated outside the console.
-
-    4.6. geometry
-
-        The geometry setting (e.g. geometry 1024x640+400+400) specifies
-        the X11 geometry for the console window, which will be saved
-        whenever the size of the console is changed.  This setting is
-        mainly intended for ~/.savorsrc, but can be used in the global
-        settings to specify an initial geometry.
-
-    4.7. lib_dir
-
-        The lib_dir setting (e.g. lib_dir /usr/lib/savors) specifies the
-        location of various Savors auxiliary files.  This setting would
-        normally be set in /etc/savorsrc for system-wide installs and
-        ~/.savorsrc for user installs.  In either case, it should
-        correspond to $PREFIX/lib/savors, where $PREFIX is the value of
-        --prefix given to configure.
-
-    4.8. smaxx
-
-        The smaxx setting (e.g. smaxx 0.5) specifies the maximum
-        percentage of a display's width that should be used for views.
-        This setting is only intended for ~/.savorsrc when a single
-        display is used for the both the console and views.
-        It is also applicable when Xinerama/XRandR combine multiple
-        displays
-
-    4.9. smaxy
-
-        The smaxx setting (e.g. smaxy 0.5) specifies the maximum
-        percentage of a display's height that should be used for views.
-        This setting is only intended for ~/.savorsrc when a single
-        display is used for the both the console and views.
-
-    4.10. snap_file
-
-        The snap_file setting (e.g. snap_file /home/user1/snap.ps)
-        specifies the file used to save snapshots taken with the C-s
-        binding in view windows.
-
-    4.11. tcp
-
-        The tcp setting (e.g. tcp 1) specifies that TCP sockets should
-        be used instead of the default UNIX sockets.  This is only
-        needed on systems that don't support UNIX sockets or for
-        multi-host multi-display setups where views run on different
-        hosts than the console.  Note that data is not encrypted over
-        TCP so this mode is only intended for local networks.
-
-    4.12. wall
-
-        The wall setting (e.g. wall 2x4) specifies the layout (columns
-        by rows) of the displays given by the displays setting in row
-        order (i.e. all columns of each row are mapped to displays in
-        order before the row after).  This setting is only intended
-        for ~/.savorsrc.
-
-    4.13. save_X
-
-        For a given name X, the save_X setting (e.g. save_hello env
-        repeat=1 echo hello word |rain) stores a command line that may
-        be loaded into console editor using ":r X".  This setting is
-        automatically created in ~/.savorsrc when using ":w X" in the
-        console to save the current command line.  It can be used in
-        /etc/savorsrc to store useful command lines accessible by all
-        users.
+    See individual man page entries for savorsrc(5) and savors(1).

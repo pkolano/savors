@@ -4,7 +4,7 @@ use strict;
 use Cwd qw(abs_path);
 use Getopt::Long;
 
-our $VERSION = 0.20;
+our $VERSION = 2.2;
 
 Getopt::Long::Configure(qw(bundling no_ignore_case require_order));
 my %opts = (
@@ -13,7 +13,7 @@ my %opts = (
 my $plver = $^V;
 $plver =~ s/v|\.\d+$//g;
 $opts{plprefix} = "$opts{prefix}/lib/perl5/site_lib/$plver/";
-exit 1 if !GetOptions(\%opts, qw(help|h citydb=s plprefix=s prefix=s));
+exit 1 if !GetOptions(\%opts, qw(help|h geodb=s plprefix=s prefix=s));
 if ($opts{help}) {
     print "'configure' configures Savors for different environments\n";
     print "\n";
@@ -23,43 +23,23 @@ if ($opts{help}) {
     print "\n";
     print "Configuration:\n";
     print "  --help             display this help and exit\n";
-    print "  --citydb=PATH      location of MaxMind GeoLite city database\n";
+    print "  --geodb=PATH       location of IP2Location DB11 database\n";
     print "  --plprefix=DIR     perl installation directory [$opts{plprefix}]\n";
     print "  --prefix=DIR       installation directory [$opts{prefix}]\n";
     print "\n";
     print "Report bugs to <paul.kolano\@nasa.gov>\n";
     exit 0;
 }
-$opts{citydb} = abs_path($opts{citydb}) if ($opts{citydb});
+$opts{geodb} = abs_path($opts{geodb}) if ($opts{geodb});
 $opts{prefix} =~ s/\/*$/\//;
 $opts{plprefix} =~ s/\/*$/\//;
 
 my $error = 0;
 my @pl_mods = qw(
-    Chart::Bars
-    Data::RandomPerson
-    Date::Parse
     GD
-    Geo::IP
-    Geo::ShapeFile
-    Graph::Easy
-    Graph::Easy::As_svg
-    Graphics::ColorObject
-    IO::Multiplex
+    Imager
     IO::Pty
-    IP::Anonymous
-    IPC::Run
-    Lingua::StopWords
-    Net::Nslookup
-    Net::Server
-    String::CRC
-    String::ShellQuote
-    Text::Balanced
     Tk
-    Tk::AbstractCanvas
-    Tie::IxHash
-    Treemap
-    XML::Simple
 );
 foreach my $mod (@pl_mods) {
     print "checking for perl module $mod...";

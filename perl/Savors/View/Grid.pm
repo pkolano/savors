@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2010 United States Government as represented by the
+# Copyright (C) 2010-2021 United States Government as represented by the
 # Administrator of the National Aeronautics and Space Administration
 # (NASA).  All Rights Reserved.
 #
@@ -36,6 +36,8 @@
 
 package Savors::View::Grid;
 
+use Savors::FatPack::PAL;
+
 use strict;
 use List::Util qw(min);
 use POSIX;
@@ -44,7 +46,7 @@ use Tk;
 
 use base qw(Savors::View);
 
-our $VERSION = 0.21;
+our $VERSION = 2.2;
 
 #############
 #### new ####
@@ -83,32 +85,35 @@ sub help {
     my $brief = shift;
     if ($brief) {
         "     grid - gridded plots           " .
-            "    grid --color=fD --fields=f22+f23 --label=fN --max=125\n";
+            "    grid --color=fD --fields=f22+f23 --label=fV --max=125\n";
     } else {
-        "USAGE: env OPT=VAL... (ARGS... |...) |grid ...\n\n" .
+        "USAGE: env OPT=VAL... (ARGS... |...) |grid --opt=val...\n\n" .
         "TYPES: graph,heat,set\n\n" .
-        "OPTIONS:                                       EXAMPLES:\n" .
-        "     --ctype=CTYPE - method to assign colors by" .
+        "OPTIONS:                                          EXAMPLES:\n" .
+        "      --ctype=CTYPE - method to assign colors by  " .
             "    --ctype=hash:ord\n" .
-        "    --fields=EVALS - expressions to plot       " .
+        "     --fields=EVALS - expressions to plot         " .
             "    --fields=f4-f123\n" .
-        "      --label=EVAL - expression to label by    " .
+        "       --label=EVAL - expression to label by      " .
             "    --label=fD\n" .
-        "          --legend - show color legend         " .
-            "    --legend\n" .
-        "       --lines=INT - number of periods to show " .
+        "    --legend[=SIZE] - show color legend           \n" .
+        "                        [REAL width or INT pixels]" .
+            "    --legend=0.2\n" .
+        "    --legend-pt=INT - legend font point size      " .
+            "    --legend-pt=12\n" .
+        "        --lines=INT - number of periods to show   " .
             "    --lines=20\n" .
-        "        --max=INTS - max value of each field   " .
+        "        --max=REALS - max value of each field     " .
             "    --max=100,10,50\n" .
-        "        --min=INTS - min value of each field   " .
+        "        --min=REALS - min value of each field     " .
             "    --min=50,0,10\n" .
-        "     --period=REAL - time between updates      " .
+        "      --period=REAL - time between updates        " .
             "    --period=15\n" .
-        "       --swap=EVAL - condition to reverse edge " .
+        "        --swap=EVAL - condition to reverse edge   " .
             "    --swap='f5>10000'\n" .
-        "    --title=STRING - title of view             " .
+        "     --title=STRING - title of view               " .
             "    --title=\"CPU Usage\"\n" .
-        "       --type=TYPE - type of grid              " .
+        "        --type=TYPE - type of grid                " .
             "    --type=set\n" .
         "";
     }
@@ -178,8 +183,15 @@ sub play {
     } elsif ($self->getopt('type') eq 'heat') {
         if ($self->{label_eval}) {
             my $key = eval $self->{label_eval};
-            my $field = eval $self->{field_evals}->[0];
-            $self->{counts}->{$key} += $field;
+            my @fields = map {eval} @{$self->{field_evals}};
+            if (scalar(@fields) == 1) {
+                $self->{counts}->{$key} += $fields[0];
+            } else {
+                my @labels = map {$self->label($_)} @{$self->{fields0}};
+                for (my $i = 0; $i < scalar(@fields); $i++) {
+                    $self->{counts}->{$key . ":". $labels[$i]} += $fields[$i];
+                }
+            }
         } else {
             my @fields = map {eval} @{$self->{field_evals}};
             if (scalar(@{$self->{fields0}}) < scalar(@fields)) {

@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2010 United States Government as represented by the
+# Copyright (C) 2010-2021 United States Government as represented by the
 # Administrator of the National Aeronautics and Space Administration
 # (NASA).  All Rights Reserved.
 #
@@ -36,6 +36,9 @@
 
 package Savors::View::Map;
 
+use Savors::FatPack::GPL;
+use Savors::FatPack::PAL;
+
 use strict;
 use File::Spec;
 use Geo::ShapeFile;
@@ -45,7 +48,7 @@ use Tk::Canvas;
 
 use base qw(Savors::View);
 
-our $VERSION = 0.21;
+our $VERSION = 2.2;
 
 #############
 #### new ####
@@ -101,36 +104,39 @@ sub help {
         "      map - world/country/shape map " .
             "    map --color=f12 --fields=f3,f7 --file=us\n";
     } else {
-        "USAGE: env OPT=VAL... (ARGS... |...) |map ...\n\n" .
+        "USAGE: env OPT=VAL... (ARGS... |...) |map --opt=val...\n\n" .
         "TYPES: arc,bubble,heat\n\n" .
-        "OPTIONS:                                       EXAMPLES:\n" .
-        "     --attr=STRING - attribute containing tags " .
+        "OPTIONS:                                          EXAMPLES:\n" .
+        "      --attr=STRING - attribute containing tags   " .
             "    --attr=fips\n" .
-        "      --color=EVAL - expression to color by    " .
+        "       --color=EVAL - expression to color by      " .
             "    --color=f19\n" .
-        "     --ctype=CTYPE - method to assign colors by" .
+        "      --ctype=CTYPE - method to assign colors by  " .
             "    --ctype=hash:ord\n" .
-        "       --dash=EVAL - condition to dash edge    " .
+        "        --dash=EVAL - condition to dash edge      " .
             "    --dash=\"f21 eq 'out'\"\n" .
-        "    --fields=EVALS - expressions denoting edges" .
+        "     --fields=EVALS - expressions denoting edges  " .
             "    --fields=f3,f7\n" .
-        "       --file=FILE - name of shape file        " .
+        "        --file=FILE - name of shape file          " .
             "    --file=us\n" .
-        "          --legend - show color legend         " .
-            "    --legend\n" .
-        "        --max=INTS - max value of each field   " .
+        "    --legend[=SIZE] - show color legend           \n" .
+        "                        [REAL width or INT pixels]" .
+            "    --legend=0.2\n" .
+        "    --legend-pt=INT - legend font point size      " .
+            "    --legend-pt=12\n" .
+        "        --max=REALS - max value of each field     " .
             "    --max=100,10,50\n" .
-        "        --min=INTS - min value of each field   " .
+        "        --min=REALS - min value of each field     " .
             "    --min=50,0,10\n" .
-        "    --no-tags=TAGS - tags to exclude           " .
-            "    --no-tags=02,15,72,78\n" .
-        "     --period=REAL - time between updates      " .
+        "    --no-tags=REGEX - exclude matching tags       " .
+            "    --no-tags=02|15|72|78\n" .
+        "      --period=REAL - time between updates        " .
             "    --period=15\n" .
-        "       --tags=TAGS - tags to include           " .
-            "    --tags=ca,mx,us\n" .
-        "    --title=STRING - title of view             " .
+        "       --tags=REGEX - include matching tags       " .
+            "    --tags=ca|mx|us\n" .
+        "     --title=STRING - title of view               " .
             "    --title=\"CPU Usage\"\n" .
-        "       --type=TYPE - type of map               " .
+        "        --type=TYPE - type of map                 " .
             "    --type=arc\n" .
         "";
     }
@@ -167,11 +173,13 @@ sub init {
             -fill => 'both',
         );
 
-        if ($self->getopt('legend')) {
+    	if (defined $self->{copts}->{legend}) {
+        	my $legend = $self->getopt('legend');
+        	$legend = int($legend * $self->{width}) if ($legend < 1);
             $self->{lcanvas} = $self->{frame0}->Canvas(
                 -background => 'black',
                 -highlightthickness => 0,
-                -width => 64,
+                -width => $legend,
             )->pack(
                 -fill => 'y',
                 -side => 'right',
@@ -179,9 +187,10 @@ sub init {
         }
 
         if ($self->getopt('title')) {
+			my $size = int(.1 * $self->{height});
             $self->{tcanvas} = $self->{frame}->Canvas(
                 -background => 'black',
-                -height => 64,
+                -height => $size,
                 -highlightthickness => 0,
             )->pack(
                 -fill => 'x',

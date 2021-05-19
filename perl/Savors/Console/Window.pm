@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2010 United States Government as represented by the
+# Copyright (C) 2010-2021 United States Government as represented by the
 # Administrator of the National Aeronautics and Space Administration
 # (NASA).  All Rights Reserved.
 #
@@ -44,8 +44,10 @@ use POSIX;
 use Time::HiRes qw(sleep time);
 
 use base qw(Savors::Console::Level);
+use Savors::Console::Layout;
+use Savors::Debug;
 
-our $VERSION = 0.21;
+our $VERSION = 2.2;
 
 #############
 #### new ####
@@ -58,16 +60,16 @@ sub new {
 
     $self->{parent} = shift;
     $self->{atime} = time;
-    $self->{bbox} = [];
-    $self->{cmds} = [];
+    $self->{cmd} = undef;
+    $self->{colors} = {};
     $self->{cursor} = "1.0";
     $self->{focused} = 0;
     $self->{insert} = 0;
-    $self->{ports} = [];
+    $self->{layout} = undef;
+    $self->{ports} = undef;
     $self->{raised} = 0;
-    $self->{sockets} = [];
+    $self->{sockets} = {};
     $self->{text} = "";
-    $self->{colors} = {};
 
     return $self;
 }
@@ -77,7 +79,7 @@ sub new {
 ##############
 sub blur {
     my $self = shift;
-    my $text = $self->wall->{text};
+    my $text = $self->wall->text;
     $self->{cursor} = $text->index('insert');
     $self->{text} = $text->Contents;
     $self->{focused} = 0;
@@ -91,25 +93,39 @@ sub focus {
     my $nograb = shift;
 
     if (!$nograb) {
-        my $text = $self->wall->{text};
-        $text->Contents($self->{text});
-        $text->SetCursor($self->{cursor});
+        my $text = $self->wall->text;
+        if ($text) {
+            $text->Contents($self->{text});
+            $text->SetCursor($self->{cursor});
+        }
         $self->{focused} = 1;
     }
 
-    my $bbox = $self->{parent}->bbox;
-    my $canvas = $self->wall->{canvas};
-    $canvas->delete('focus');
-    $canvas->createRectangle(
-        1 + int($canvas->width * $bbox->[2]),
-        1 + int($canvas->height * $bbox->[3]),
-        -1 + int($canvas->width * ($bbox->[2] + $bbox->[0])),
-        -1 + int($canvas->height * ($bbox->[3] + $bbox->[1])),
-        -outline => 'white',
-        -tags => 'focus',
-        -width => 5,
-    );
-    $canvas->idletasks;
+    my $canvas = $self->wall->canvas;
+    if ($canvas) {
+        my $bbox = $self->bbox;
+        $canvas->delete('focus');
+        $canvas->createRectangle(
+            1 + int($canvas->width * $bbox->[2]),
+            1 + int($canvas->height * $bbox->[3]),
+            -1 + int($canvas->width * ($bbox->[2] + $bbox->[0])),
+            -1 + int($canvas->height * ($bbox->[3] + $bbox->[1])),
+            -fill => '#002b36',
+            -tags => 'focus',
+        );
+        $canvas->lower('focus');
+        $canvas->idletasks;
+    }
+}
+
+################
+#### insert ####
+################
+sub insert {
+    my $self = shift;
+    my $val = shift;
+    $self->{insert} = $val if (defined $val);
+    return $self->{insert};
 }
 
 ###############
@@ -117,6 +133,7 @@ sub focus {
 ###############
 sub lower {
     my $self = shift;
+    $self->{layout}->lower if ($self->{layout});
     if ($self->{raised}) {
         $self->send("lower");
         $self->{raised} = 0;
@@ -129,6 +146,7 @@ sub lower {
 ###############
 sub raise {
     my $self = shift;
+    $self->{layout}->raise if ($self->{layout});
     if (!$self->{raised}) {
         $self->send("raise");
         $self->{raised} = 1;
@@ -141,19 +159,21 @@ sub raise {
 ################
 sub remove {
     my $self = shift;
-    my $canvas = $self->wall->{canvas};
+    if ($self->{layout}) {
+        $self->{layout}->remove(1);
+        $self->{layout} = undef;
+    } 
+    my $canvas = $self->wall->canvas;
     $canvas->delete($self) if ($canvas);
-    if (scalar(@{$self->{ports}})) {
+    if ($self->{ports}) {
         $self->send("quit");
-        foreach my $socks (@{$self->{sockets}}) {
-            close $_ foreach (values %{$socks});
-        }
-        $self->{bbox} = [];
-        $self->{cmds} = [];
-        $self->{colors} = {};
-        $self->{ports} = [];
-        $self->{sockets} = [];
+        close $_ foreach (values %{$self->{sockets}});
+        $self->{ports} = undef;
+        $self->{sockets} = {};
     }
+    $self->{cmd} = undef;
+    $self->{colors} = {};
+    $self->{servers} = {};
 }
 
 #############
@@ -161,19 +181,38 @@ sub remove {
 #############
 sub run {
     my $self = shift;
-    my $cmd = shift;
-    my $bbox0 = $self->{parent}->bbox;
-    my @bbox;
-    foreach (qw(swidth sheight sx sy)) {
-        push(@bbox, $1) if ($cmd =~ /\s--$_=(\S+)/);
+    my $cmds = shift;
+    my $layout = shift;
+
+    if (!$cmds) {
+        return 1 if ($self->{layout} || $self->{cmd});
+        return 0;
     }
-    $bbox[$_] /= $bbox0->[$_] foreach (0, 1);
-    $bbox[$_] -= $bbox0->[$_] foreach (2, 3);
-    $bbox[$_] /= $bbox0->[$_ - 2] foreach (2, 3);
-    push(@{$self->{bbox}}, \@bbox);
-    push(@{$self->{cmds}}, $cmd);
-    $self->update;
-    push(@{$self->{ports}}, $self->wall->run($cmd, \@bbox));
+    if ($layout) {
+        $self->{layout} = Savors::Console::Layout->new($self);
+        $self->{layout}->run($cmds, $layout);
+        $self->{layout}->update;
+    } else {
+        $self->{cmd} = $cmds->[0]->[0];
+        $self->update;
+        $self->{ports} = $self->wall->run($self->{cmd}, $self->bbox);
+        $self->server($_) foreach (@{$cmds->[0]->[1]});
+    }
+}
+
+##############
+#### save ####
+##############
+sub save {
+    my $self = shift;
+    my $file = shift;
+    if ($self->{layout}) {
+        $self->{layout}->save($file);
+    } else {
+        $self->send("save $file");
+        sleep 0.1 while (! -e "$file.done");
+        unlink "$file.done";
+    }
 }
 
 ##############
@@ -182,20 +221,14 @@ sub run {
 sub send {
     my $self = shift;
     my $msg = shift;
-    my $index1 = shift;
     my $dindex0 = shift;
-    my $index2 = defined $index1 ? $index1 : scalar(@{$self->{ports}}) - 1;
-    $index1 = 0 if (!defined $index1);
-    foreach my $i ($index1 .. $index2) {
-        my $socks = $self->{sockets}->[$i];
-        my $ports = $self->{ports}->[$i];
-        if (!defined $socks) {
-            $self->{sockets}->[$i] = {};
-            $socks = $self->{sockets}->[$i];
-        }
-        while (my ($dindex, $port) = each %{$ports}) {
+
+    if ($self->{layout}) {
+        return $self->{layout}->send($msg);
+    } elsif ($msg && $self->{ports}) {
+        while (my ($dindex, $port) = each %{$self->{ports}}) {
             next if (defined $dindex0 && $dindex != $dindex0);
-            my $sock = $socks->{$dindex};
+            my $sock = $self->{sockets}->{$dindex};
             if (!$sock) {
                 if ($port =~ /:\d+$/) {
                     $sock = IO::Socket::INET->new(
@@ -209,32 +242,14 @@ sub send {
                     );
                     $sock->blocking(0);
                 }
-                $socks->{$dindex} = $sock;
+                $self->{sockets}->{$dindex} = $sock;
                 sleep 0.1 while (!$sock->connected);
             }
             syswrite($sock, "$msg\n");
         }
         #TODO: need error checking for socket (i.e. still exists)
     }
-}
-
-##############
-#### save ####
-##############
-sub save {
-    my $self = shift;
-    my $file0 = shift;
-    if (scalar(@{$self->{ports}}) > 1) {
-        for (my $i = 1; $i <= scalar(@{$self->{ports}}); $i++) {
-            my $file = $file0;
-            if ($file !~ s/\.(?!.*\.)/-$i./) {
-                $file .= "-$i";
-            }
-            $self->send("save $file", $i - 1);
-        }
-    } else {
-        $self->send("save $file0");
-    }
+    return [values %{$self->{sockets}}];
 }
 
 ################
@@ -243,8 +258,13 @@ sub save {
 sub server {
     my $self = shift;
     my $server = shift;
-    $self->{servers}->{$server} = $server;
-    $self->send("server $server->{addr}", scalar(@{$self->{ports}}) - 1);
+    if ($self->{layout}) {
+        return $self->{layout}->server($server);
+    } elsif (defined $server) {
+        $self->{servers}->{$server} = $server;
+        $self->send("server $server->{addr}");
+    }
+    return $self->{servers};
 }
 
 ################
@@ -252,62 +272,62 @@ sub server {
 ################
 sub update {
     my $self = shift;
-    my $canvas = $self->wall->{canvas};
-    # may be undefined when no console window
-    return if (!$canvas);
-    $canvas->delete($self);
-    if ($self->{raised}) {
-        my $bbox0 = $self->{parent}->bbox;
-        my $cmd = scalar(@{$self->{cmds}}) == 1 ? $self->{cmds}->[0] :
-            (scalar(@{$self->{cmds}}) > 1 ? "multi" : "");
-        $cmd =~ s/.*--view=|\s.*//g;
-        $cmd = " " if (length($cmd) == 0);
-        my $hsize = $canvas->width * $bbox0->[0];
-        my $vsize = $canvas->height * $bbox0->[1];
-        my $size = min(int($hsize / length($cmd)), int($vsize));
-        $canvas->createText(
-            1 + int($canvas->width * $bbox0->[2] + $hsize / 2),
-            1 + int($canvas->height * $bbox0->[3] + $vsize / 2),
-            -fill => 'white',
-            -font => "courier -$size",
-            -tags => $self,
-            -text => $cmd,
-        );
-        $canvas->createRectangle(
-            1 + int($canvas->width * $bbox0->[2]),
-            1 + int($canvas->height * $bbox0->[3]),
-            -1 + int($canvas->width * $bbox0->[2] + $hsize),
-            -1 + int($canvas->height * $bbox0->[3] + $vsize),
-            -outline => 'white',
-            -tags => $self,
-        );
-
+    if ($self->{layout}) {
+        $self->{layout}->update;
         $self->focus(1) if ($self->{focused});
-        for (my $i = 0; $i < scalar(@{$self->{ports}}); $i++) {
-            my @bbox = @{$bbox0};
-            $bbox[$_] += $self->{bbox}->[$i]->[$_] * $bbox[$_ - 2]
-                foreach (2, 3);
-            $bbox[$_] *= $self->{bbox}->[$i]->[$_] foreach (0, 1);
-            my $ports0 = $self->{ports}->[$i];
-            my $ports = $self->wall->run($self->{cmds}->[$i], \@bbox, $ports0);
-            foreach my $dindex (keys %{$ports0}) {
-                if (!$ports->{$dindex}) {
-                    $self->send("quit display", $i, $dindex);
-                    delete $self->{sockets}->[$i]->{$dindex};
-                }
-            }
-            $self->{ports}->[$i] = $ports;
-            foreach my $dindex (keys %{$ports}) {
-                if (!$ports0->{$dindex}) {
-                    foreach my $server (values %{$self->{servers}}) {
-                        $self->send("server $server->{addr}", $i, $dindex);
-                    }
-                }
-            }
-            $self->send("bbox " . join(" ", @bbox), $i);
+        return;
+    }
+    my $bbox = $self->bbox;
+    # may be undefined when no console window
+    my $canvas = $self->wall->canvas;
+    if ($canvas) {
+        $canvas->delete($self);
+        if ($self->{raised}) {
+            my $cmd = $self->{cmd};
+            $cmd =~ s/.*--view=|\s.*//g;
+            $cmd = " " if (length($cmd) == 0);
+            my $hsize = $canvas->width * $bbox->[0];
+            my $vsize = $canvas->height * $bbox->[1];
+            my $size = min(int($hsize / length($cmd)), int($vsize));
+            $canvas->createText(
+                1 + int($canvas->width * $bbox->[2] + $hsize / 2),
+                1 + int($canvas->height * $bbox->[3] + $vsize / 2),
+                -fill => 'white',
+                -font => "courier -$size",
+                -tags => $self,
+                -text => $cmd,
+            );
+            $canvas->createRectangle(
+                1 + int($canvas->width * $bbox->[2]),
+                1 + int($canvas->height * $bbox->[3]),
+                -1 + int($canvas->width * $bbox->[2] + $hsize),
+                -1 + int($canvas->height * $bbox->[3] + $vsize),
+                -outline => 'white',
+                -tags => $self,
+            );
         }
     }
-    $canvas->idletasks;
+
+    $self->focus(1) if ($self->{focused});
+    my $ports0 = $self->{ports};
+    return if (!$ports0);
+    my $ports = $self->wall->run($self->{cmd}, $bbox, $ports0);
+    foreach my $dindex (keys %{$ports0}) {
+        if (!$ports->{$dindex}) {
+            $self->send("quit display", $dindex);
+            delete $self->{sockets}->{$dindex};
+        }
+    }
+    $self->{ports} = $ports;
+    foreach my $dindex (keys %{$ports}) {
+        if (!$ports0->{$dindex}) {
+            foreach my $server (values %{$self->{servers}}) {
+                $self->send("server $server->{addr}", $dindex);
+            }
+        }
+    }
+    $self->send("bbox " . join(" ", @{$bbox}));
+    $canvas->idletasks if ($canvas);
 }
 
 1;

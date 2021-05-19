@@ -1,0 +1,181 @@
+.TH "savorsrc" "5" "18 May 2021" "" ""
+./"################################################################
+.SH "NAME"
+./"################################################################
+\fBsavorsrc\fP \(em configuration file for Savors
+./"################################################################
+.SH "DESCRIPTION"
+./"################################################################
+The Savors configuration file consists of key-value pairs.  Keys are
+the first non-whitespace word on a line with the corresponding value as
+the remaining text after the first whitespace following the key.  Any
+text following the hash character "#" is ignored as a comment.  A
+backslash "\\" may be used as the last non-whitespace character on a
+line to join that line with the one that follows.
+.PP
+Settings global to all users can be placed in /etc/savorsrc.  Settings
+local to a single user can be placed in ~/.savorsrc and will override
+global settings.  Some settings such as the "geometry" and "save_X"
+settings will be stored in ~/.savorsrc when changed within the console
+with the old file moved to ~/.savorsrc~.
+./"################################################################
+.SH "CONFIGURATION ITEMS"
+./"################################################################
+.IP anon_key nodefault
+An arbitrary text string used for host, IP address, and user
+anonymization in the view hostanon(), ipanon(), and useranon() functions
+(see savors-view(7)).  This setting is only intended for ~/.savorsrc.
+.IP debug_file
+The file used to store debug output.  Currently, this output includes
+exceptions that have caused any Savors component to abort and manual
+debugging statements emitted via the Savors::Debug module.  This
+setting is only intended for ~/.savorsrc.
+.IP displays
+A comma-separated list of displays to use when the physical monitors are
+not connected to the system on which the console is running.  Each
+display is of the form "host[:[xnum][:lib_dir]]", where "host" is a host
+name or IP address, "xnum" is the X11 display number (see X(7)) on that
+host, and "lib_dir" is the Savors library directory on that host.  The
+"xnum" and/or "lib_dir" portions are optional, defaulting to "0" and
+the "lib_dir" setting of the console (see "lib_dir" setting),
+respectively.  For example:
+.PP
+.RS
+.RS
+.nf
+displays host1,host2:3,host3::/savors/lib,host4:6:/lib
+.fi
+.RE
+.PP
+would specify that four displays should be used: a display on host1
+using X11 display ":0" and console's "lib_dir", a display on host2
+using X11 display ":3" and console's "lib_dir", a display on host3
+using X11 display ":0" and library location "/savors/lib", and
+a display on host4 using X11 display ":6" and library location "/lib".
+.PP
+Note that the order the displays are specified determines their virtual
+arrangement (see the "wall" setting).  Each display host must be
+accessible via non-interactive ssh authentication (e.g. publickey or
+hostbased) and all corresponding ssh public host keys must be in the
+user's or system's known host file.  The savors-view program must also
+be in the default $PATH on each display host.  This setting is only
+intended for ~/.savorsrc.
+.RE
+.IP font_size
+An integer specifying the font size that should be used in the console
+editor and related items.  The default is 12.
+.IP frame
+Enable or disable window frames, which are the traditional borders that
+allows windows to be moved, resized, minimized, maximized, and closed.
+A zero value disables frames and a non-zero value enables them.  Note
+that manipulating windows outside of the Savors console may cause
+unexpected behavior.  In particular, closing windows via the frame may
+cause the current session to freeze.  By default, view windows are
+shown frameless to maximize screen real estate and minimize visual
+clutter.  Note that the console is always displayed with a frame.
+.IP geometry
+Specify the geometry of the Savors console window.  A geometry takes the
+form "WxH[+-]X[+-]Y" where W and H are positive integers specifying the
+width and height, respectively, of the window and X and Y are horizontal
+and vertical offsets, respectively, in pixels.  Positive offsets are
+relative to the top left of the screen while negative offsets are
+relative to the bottom right.  The default geometry is
+1024x640+400+400.  This setting is mainly intended for ~/.savorsrc,
+but can be used in the global settings to specify an initial geometry.
+.IP lib_dir
+The directory containing Savors auxiliary files including fonts, IP
+geoloation database, word cloud library, and map shape files.  The
+default is /usr/local/lib.  This setting would normally be set in
+/etc/savorsrc for system-wide installs and ~/.savorsrc for user
+installs.  In either case, it should normally correspond to
+$PREFIX/lib/savors, where $PREFIX is the value of \fB\-\-prefix\fP
+given to configure during the installation process.
+.IP save_X
+View specifications saved under name "X" that were either predefined
+by the user/admin or saved using ":w X" in the console (see savors(1)).
+For example:
+.PP
+.RS
+.RS
+.nf
+save_hello env repeat=1 echo hello world |rain
+.fi
+.RE
+.PP
+specifies a view saved under the name "hello" with a Savors command
+line that would show a rainfall of the text "hello world".  Saved views
+can be loaded into the console using ":r X" or run without the console
+using "savors -c X".  This setting is mainly intended for ~/.savorsrc,
+but can be used in the global settings to store useful command lines
+accessible by all users.
+.RE
+.IP smaxx
+A real number between 0 and 1 indicating the fraction of the width
+across all displays that should be used for views.  The default is 1.
+This setting is only intended for ~/.savorsrc when a single display is
+used for the both the console and views.
+.IP smaxy
+A real number between 0 and 1 indicating the fraction of the height
+across all displays that should be used for views.  The default is 1.
+It is highly recommended to set this to a value less than 1 with a
+single monitor to leave space for the console.  A value less than 1 is
+also useful with Xinerama/XRandR over laptop+monitor configurations to
+select a paricular subset of displays to use.  This setting is only
+intended for ~/.savorsrc when a single display is used for the both the
+console and views.
+.IP snap_file
+The file used to save snapshots taken manually with the C-s binding in
+view windows as well as for automated periodic snapshots taken with the
+\fB\-\-snap\fP option.  Note that automated snapshots will use the given
+file as a base name to which a timestamp will be added.
+.IP tcp
+Enable or disable the use of TCP sockets to communicate between
+components.  A zero value disables TCP sockets and a non-zero value
+enables them.  Note that TCP sockets are meant for environments where
+the default Unix sockets are not available (e.g. Cygwin) or when the
+console, data servers, or display are not on the same system.  Also
+note that data streams are not encrypted between components.
+.IP wall
+The grid layout in columns by rows of the physical displays configured
+in the "displays" setting.  For example "wall 2x4" would indicate there
+are 4 rows with 2 columns each.  The specified grid size must match the
+number of displays specified in the "displays" setting.  Displays are
+mapped in row order so all columns of one row are mapped before those in
+the next.  For example, in the configuration:
+.PP
+.RS
+.RS
+.nf
+displays host1,host2,host3,host4
+wall 2x2
+.fi
+.RE
+.PP
+row 1 would consist of host1 and host2, while row 2 would consist of
+host3 and host4.  This setting is only intended for ~/.savorsrc.
+.RE
+./"################################################################
+.SH "FILES"
+./"################################################################
+/etc/savorsrc
+.RS
+This file specifies various global configuration items including
+screen and geometry preferences, file paths, default options, and
+preconfigured views.
+.RE
+.PP
+$HOME/.savorsrc
+.RS
+This file specifies per user overrides of global configuration and
+saved views.
+.RE
+./"################################################################
+.SH "AUTHOR"
+./"################################################################
+Savors was written by Paul Kolano.
+./"################################################################
+.SH "SEE ALSO"
+./"################################################################
+savors(1), savors-axis(7), savors-chart(7), savors-cloud(7),
+savors-data(7), savors-expr(7), savors-graph(7), savors-grid(7),
+savors-map(7), savors-rain(7), savors-tree(7), savors-view(7), X(7)

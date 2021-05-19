@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2010 United States Government as represented by the
+# Copyright (C) 2010-2021 United States Government as represented by the
 # Administrator of the National Aeronautics and Space Administration
 # (NASA).  All Rights Reserved.
 #
@@ -36,13 +36,17 @@
 
 package Savors::Console::Layout;
 
+use Savors::FatPack::PAL;
+
 use strict;
+use Text::Balanced qw(extract_bracketed);
 use Time::HiRes qw(time);
 
 use base qw(Savors::Console::Level);
 use Savors::Console::Region;
+use Savors::Debug;
 
-our $VERSION = 0.21;
+our $VERSION = 2.2;
 
 #############
 #### new ####
@@ -70,13 +74,7 @@ sub new {
 sub bbox {
     my $self = shift;
     my $child = shift;
-    my $bbox;
-    if (ref($self->{parent}) ne ref($self)) {
-        # swidth, sheight, sx, sy
-        $bbox = [1, 1, 0, 0];
-    } else {
-        $bbox = $self->{parent}->bbox($self);
-    }
+    my $bbox = $self->{parent}->bbox($self);
     if ($self->{split} >= 0) {
         $bbox->[$self->{split}] /= scalar(@{$self->{children}});
         $bbox->[2 + $self->{split}] +=
@@ -141,6 +139,123 @@ sub move {
     }
 }
 
+#################
+#### psmerge ####
+#################
+# based on epsfcompose by Nick Kaiser - kaiser@hawaii.edu (no license specified)
+sub psmerge {
+    my $split = shift;
+    my $out = shift;
+    my @files = $split ? reverse @_ : @_;
+
+    # get the bounding boxes
+    my (%dx, %t, %x);
+    my @scale;
+    foreach my $f (0 .. scalar(@files) - 1) {
+        open(EPS, $files[$f]);
+        # must not read to $_ below or console will mysteriously die
+        while (my $line = <EPS>) {
+            next if ($line !~ /^%%BoundingBox:/);
+            my @xy = split(/\s/, $line);
+            next if (scalar(@xy) != 5);
+            shift @xy;
+            # get coords of 4 corners (llx, lly, urx, ury)
+            $x{$f,1,0} = $xy[0];
+            $x{$f,1,1} = $xy[1];
+            $x{$f,2,0} = $xy[0];
+            $x{$f,2,1} = $xy[3];
+            $x{$f,3,0} = $xy[2];
+            $x{$f,3,1} = $xy[3];
+            $x{$f,4,0} = $xy[2];
+            $x{$f,4,1} = $xy[1];
+
+            if ($f == 0) {
+                $scale[$f] = 1;
+            } elsif ($split) {
+                $scale[$f] = ($x{0,3,0} - $x{0,1,0}) / ($xy[2] - $xy[0]);
+            } else {
+                $scale[$f] = ($x{0,3,1} - $x{0,1,1}) / ($xy[3] - $xy[1]);
+            }
+            $t{$f,0,0} = $scale[$f];
+            $t{$f,0,1} = 0;
+            $t{$f,1,0} = 0;
+            $t{$f,1,1} = $scale[$f];
+            last;
+        }
+        close EPS;
+
+        # apply scaling and rotation to corners of b-boxes
+        foreach my $c (1 .. 4) {
+            my @x;
+            foreach my $i (0 .. 1) {
+                $x[$i] = $t{$f,$i,0} * $x{$f,$c,0} + $t{$f,$i,1} * $x{$f,$c,1};
+            }
+            foreach my $i (0 .. 1) {
+                $x{$f,$c,$i} = $x[$i];
+            }
+        }
+
+        # apply shifts to each of bbox corners
+        my @xo = $split ? (0, $f) : ($f, 0);
+        foreach my $i (0 .. 1) {
+            # additionally shift bounding boxes so use same origin of 0,0
+            $dx{$f,$i} = -$x{$f,1,$i} + ($x{$f,3,$i} - $x{$f,1,$i}) * $xo[$i];
+            foreach my $c (1 .. 4) {
+                $x{$f,$c,$i} += $dx{$f,$i};
+            }
+        }
+    }
+
+    # figure the final bbox
+    my (@xmin, @xmax);
+    foreach my $i (0 .. 1) {
+        $xmin[$i] = $xmax[$i] = $x{0,1,$i};
+        foreach my $f (0 .. scalar(@files) - 1) {
+            foreach my $c (1 .. 4) {
+                $xmin[$i] = $x{$f,$c,$i} if ($x{$f,$c,$i} < $xmin[$i]);
+                $xmax[$i] = $x{$f,$c,$i} if ($x{$f,$c,$i} > $xmax[$i]);
+            }
+        }
+    }
+
+    # make final bounding box
+    my (@ll, @ur);
+    foreach my $i (0 .. 1) {
+        $ll[$i] = $xmin[$i];
+        $ur[$i] = $xmax[$i];
+    }
+
+    # print the 1st two lines
+    open(OUT, '>', $out);
+    print OUT "%!PS-Adobe-3.0 EPSF-3.0\n";
+    print OUT "%%BoundingBox: $ll[0] $ll[1] $ur[0] $ur[1]\n";
+    print OUT "%%EndComments\n";
+    foreach my $f (0 .. scalar(@files) - 1) {
+        print OUT "/nksave save def\n";
+        print OUT "/showpage {} def\n";
+        print OUT "0 setgray 0 setlinecap\n";
+        print OUT "1 setlinewidth 0 setlinejoin\n";
+        print OUT "10 setmiterlimit [] 0 setdash newpath\n";
+        print OUT "%%BeginDocument: $files[$f]\n";
+        print OUT "$dx{$f,0} $dx{$f,1} translate\n";
+        print OUT "$scale[$f] $scale[$f] scale\n";
+        my $skip = 1;
+        open(EPS, $files[$f]);
+        # must not read to $_ below or console will mysteriously die
+        while (my $line = <EPS>) {
+            if (!$skip) {
+                print OUT $line;
+            }
+            $skip = 0 if ($line =~ /^%%EndComments/);
+        }
+        close EPS;
+        print OUT "%%EndDocument\n";
+        print OUT "nksave restore\n";
+    }
+    print OUT "showpage\n";
+    close OUT;
+}
+
 ###############
 #### raise ####
 ###############
@@ -155,6 +270,10 @@ sub raise {
 sub remove {
     my $self = shift;
     my $child = shift;
+    if (!defined $child || !ref $child) {
+        $_->remove($child) foreach (@{$self->{children}});
+        return;
+    }
     return if (scalar(@{$self->{children}}) == 1);
     splice(@{$self->{children}}, $self->index($child), 1);
     $self->{current}-- if ($self->{current} >= scalar(@{$self->{children}}));
@@ -186,6 +305,125 @@ sub replace {
 ###############
 sub right {
     return $_[0]->move($_[1], 1, 0, 0);
+}
+
+#############
+#### run ####
+#############
+sub run {
+    my $self = shift;
+    my $cmds = shift;
+    my $layout0 = shift;
+
+    my $subs = {};
+    my $layout = run_layout($layout0, $subs);
+
+    my @regions;
+    if ($layout =~ /-/) {
+        @regions = split(/-/, $layout);
+        @regions = map {s/^(\d+)$/$1x1/; $_} @regions;
+        $self->{split} = 1;
+    } elsif ($layout =~ /\|/) {
+        @regions = split(/\|/, $layout);
+        @regions = map {s/^(\d+)$/1x$1/; $_} @regions;
+        $self->{split} = 0;
+    } elsif ($layout =~ /1x(\d+)/) {
+        $self->{split} = 1;
+        push(@{$self->{children}}, Savors::Console::Region->new($self))
+            foreach (1 .. $1 - 1);
+        $_->run($cmds) foreach (@{$self->{children}});
+        return;
+    } elsif ($layout =~ /(\d+)x1/ || $layout =~ /^(\d+)$/) {
+        $self->{split} = 0;
+        push(@{$self->{children}}, Savors::Console::Region->new($self))
+            foreach (1 .. $1 - 1);
+        $_->run($cmds) foreach (@{$self->{children}});
+        return;
+    } elsif ($layout =~ /(\d+)x(\d+)/) {
+        @regions = map {$1} 1 .. $2;
+        $self->{split} = 1;
+    } else {
+        #TODO: error
+    }
+    foreach my $region (@regions) {
+        push(@{$self->{children}}, Savors::Console::Layout->new($self));
+    }
+    # remove original region
+    shift @{$self->{children}};
+    my $i = 0;
+    foreach my $region (@regions) {
+        $region =~ s/^(s\d+)$/$subs->{$1}/;
+        $self->{children}->[$i++]->run($cmds, $region);
+    }
+}
+
+####################
+#### run_layout ####
+####################
+sub run_layout {
+    my $layout = shift;
+    my $subs = shift;
+    my ($sub, $rem, $pre) =
+        extract_bracketed($layout, '(', '[x\s\d\|\-]*');
+    if ($sub && !$rem && !$pre) {
+        return run_layout(substr($sub, 1, -1), $subs);
+    } elsif ($sub) {
+        $sub =~ s/^.|.$//g;
+        my $key = "s" . $subs->{n}++;
+        $subs->{$key} = $sub;
+        return $pre . $key . run_layout($rem, $subs);
+    } else {
+        return $layout;
+    }
+}
+
+##############
+#### save ####
+##############
+sub save {
+    my $self = shift;
+    my $file0 = shift;
+
+    if (scalar(@{$self->{children}}) == 1) {
+        $self->{children}->[0]->save($file0);
+    } else {
+        my $i = 0;
+        my @files;
+        foreach (@{$self->{children}}) {
+            my $file = $file0 . ($i++) . ".ps";
+            push(@files, $file);
+            $_->save($file);
+        }
+        psmerge($self->{split}, $file0, @files);
+        unlink @files;
+    }
+}
+
+##############
+#### send ####
+##############
+sub send {
+    my $self = shift;
+    my $msg = shift;
+    my @sockets;
+    push(@sockets, @{$_->send($msg)}) foreach (@{$self->{children}});
+    return \@sockets;
+}
+
+################
+#### server ####
+################
+sub server {
+    my $self = shift;
+    my $server = shift;
+    my %servers;
+    foreach (@{$self->{children}}) {
+        my $vserver = $_->server($server);
+        while (my ($key, $val) = each %{$vserver}) {
+            $servers{$key} = $val;
+        }
+    }
+    return \%servers;
 }
 
 ###############

@@ -1,0 +1,94 @@
+.TH "savors-rain" "7" "18 May 2021" "" ""
+./"################################################################
+.SH "NAME"
+./"################################################################
+\fBsavors-rain\fP \(em plot raw data fields using text or pixels that
+stream down the screen
+./"################################################################
+.SH "SYNOPSIS"
+./"################################################################
+.nf
+env OPT=VAL... (ARGS... |...) |rain --opt=val...
+.fi
+.PP
+Display a rain view based on the given data pipeline.
+./"################################################################
+.SH "DESCRIPTION"
+./"################################################################
+The rain view type plots raw data fields as a rainfall that streams
+down the screen from top to bottom.  Fields can be displayed as either
+text or as bitmaps for binary data.  The current "scan" line will be
+shown in white.  When the scan line is at the bottom, the next data line
+will be shown at the top with existing data overwritten.
+./"################################################################
+.SH "OPTIONS SUMMARY"
+./"################################################################
+The following options are specific to the rain view.  See savors-view(7)
+for additional options that are available to all views.  Defaults are
+shown in brackets.  The \(cq\&=\(cq\& for options that take a parameter
+is optional; whitespace may be used instead.  Detailed descriptions are
+given in following sections.
+.PP
+.nf
+\-\-hex      show binary data as hex
+\-\-size=INT font size or 1 for binary [14]
+.fi
+./"################################################################
+.SH "OPTIONS"
+./"################################################################
+See savors-view(7) for detailed descriptions of the options that
+are available to all views.
+.IP "\fB\-\-hex\fP"
+Show binary data in hexadecimal form where each byte will be shown as
+two hex digits.
+.IP "\fB\-\-size=INT\fP"
+Use a font of the given point size to display data fields or 1 to display 
+fields as a bitmap.
+./"################################################################
+.SH "EXAMPLES"
+./"################################################################
+Show a rainfall of "hello world" streaming down the screen:
+.PP
+.RS
+.nf
+env repeat=1 echo "hello world" |rain
+.fi
+.RE
+.PP
+Show a rainfall of the system logs from four hosts correlated in
+temporal order and colored according to host.  In this example, the
+"data" data directive is used to easily generate four separate data
+streams consisting of the syslog files on each of {host1, host2, host3,
+host4}, which are synchronized according to the standard time fields
+in syslog files occurring in the first three fields.
+.PP
+.RS
+.nf
+env time=f1-f3 data=1-4 ssh hostfD cat /var/log/syslog |rain --color=fD
+.fi
+.RE
+./"################################################################
+.SH "FILES"
+./"################################################################
+/etc/savorsrc
+.RS
+This file specifies various global configuration items including
+screen and geometry preferences, file paths, default options, and
+preconfigured views.  See savorsrc(5).
+.RE
+.PP
+$HOME/.savorsrc
+.RS
+This file specifies per user overrides of global configuration and
+saved views.  See savorsrc(5).
+.RE
+./"################################################################
+.SH "AUTHOR"
+./"################################################################
+Savors was written by Paul Kolano.
+./"################################################################
+.SH "SEE ALSO"
+./"################################################################
+savors(1), savors-axis(7), savors-chart(7), savors-cloud(7),
+savors-data(7), savors-expr(7), savors-graph(7), savors-grid(7),
+savors-map(7), savors-tree(7), savors-view(7), savorsrc(5)

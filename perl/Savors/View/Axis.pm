@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2010 United States Government as represented by the
+# Copyright (C) 2010-2021 United States Government as represented by the
 # Administrator of the National Aeronautics and Space Administration
 # (NASA).  All Rights Reserved.
 #
@@ -43,7 +43,7 @@ use base qw(Savors::View);
 use List::Util qw(min);
 use Math::Trig qw(pi);
 
-our $VERSION = 0.21;
+our $VERSION = 2.2;
 
 #############
 #### new ####
@@ -91,32 +91,35 @@ sub help {
         "     axis - multi-axis relationships" .
             "    axis --color=f19 --fields=f3,f5,f7,f9 --label=si,sp,di,dp\n";
     } else {
-        "USAGE: env OPT=VAL... (ARGS... |...) |axis ...\n\n" .
+        "USAGE: env OPT=VAL... (ARGS... |...) |axis --opt=val...\n\n" .
         "TYPES: circle,hive,parallel,star\n\n" .
-        "OPTIONS:                                        EXAMPLES:\n" .
-        "       --color=EVAL - expression to color by    " .
+        "OPTIONS:                                          EXAMPLES:\n" .
+        "       --color=EVAL - expression to color by      " .
             "    --color=f19\n" .
-        "      --ctype=CTYPE - method to assign colors by" .
+        "      --ctype=CTYPE - method to assign colors by  " .
             "    --ctype=hash:ord\n" .
-        "        --dash=EVAL - condition to dash edge    " .
+        "        --dash=EVAL - condition to dash edge      " .
             "    --dash=\"f21 eq 'out'\"\n" .
-        "     --fields=EVALS - expressions to plot       " .
+        "     --fields=EVALS - expressions to plot         " .
             "    --fields=f3,f5,f7,f9\n" .
-        "    --label=STRINGS - labels for axes           " .
+        "    --label=STRINGS - labels for axes             " .
             "    --label=sip,sport,dip,dport\n" .
-        "           --legend - show color legend         " .
-            "    --legend\n" .
-        "        --lines=INT - data lines to show        " .
+        "    --legend[=SIZE] - show color legend           \n" .
+        "                        [REAL width or INT pixels]" .
+            "    --legend=0.2\n" .
+        "    --legend-pt=INT - legend font point size      " .
+            "    --legend-pt=12\n" .
+        "        --lines=INT - data lines to show          " .
             "    --lines=20\n" .
-        "         --max=INTS - max value of each field   " .
+        "        --max=REALS - max value of each field     " .
             "    --max=100,10,50\n" .
-        "         --min=INTS - min value of each field   " .
+        "        --min=REALS - min value of each field     " .
             "    --min=50,0,10\n" .
-        "      --period=REAL - time between updates      " .
+        "      --period=REAL - time between updates        " .
             "    --period=3\n" .
-        "     --title=STRING - title of view             " .
+        "     --title=STRING - title of view               " .
             "    --title=\"CPU Usage\"\n" .
-        "        --type=TYPE - type of plot              " .
+        "        --type=TYPE - type of plot                " .
             "    --type=hive\n" .
         "";
     }

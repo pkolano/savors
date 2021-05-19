@@ -1,0 +1,133 @@
+.TH "savors-tree" "7" "18 May 2021" "" ""
+./"################################################################
+.SH "NAME"
+./"################################################################
+\fBsavors-tree\fP \(em plot hierarchical relationships and relative
+values using nested rectangles
+./"################################################################
+.SH "SYNOPSIS"
+./"################################################################
+.nf
+env OPT=VAL... (ARGS... |...) |tree --opt=val...
+.fi
+.PP
+Display a tree view based on the given data pipeline.
+./"################################################################
+.SH "DESCRIPTION"
+./"################################################################
+The tree view type plots a set of nested regions where the size of the
+regions at each level indicates the relative percentage of some metric
+compared to other regions at the same level.  A parent-child
+relationship is indicated by the containment of one region within
+another.  Three different subtypes are available that control how
+regions are placed within parent regions.
+./"################################################################
+.SH "SUBTYPES"
+./"################################################################
+The tree view has three subtypes.
+.IP histo
+Plot regions such that they minimize the distance to the median
+coordinates.  Note that this subtype requires the \fB\-\-xfields\fP
+and \fB\-\-yfields\fP options.
+.IP squarified
+Plot regions such that they keep the aspect ratio of regions as close to
+one as possible.
+.IP weighted
+Plot regions such that they keep the aspect ratio of regions as close
+to one as possible while minimizing the distance to the median
+coordinates.  Note that this subtype requires the \fB\-\-xfields\fP
+and \fB\-\-yfields\fP options.
+./"################################################################
+.SH "OPTIONS SUMMARY"
+./"################################################################
+The following options are specific to the tree view.  See savors-view(7)
+for additional options that are available to all views.  Defaults are
+shown in brackets.  The \(cq\&=\(cq\& for options that take a parameter
+is optional; whitespace may be used instead.  Detailed descriptions are
+given in following sections.
+.PP
+.nf
+\-\-face=FONT       alternate font face [Arial]
+\-\-font=PATH       path to alternate font
+\-\-show=INTS       max items for each level
+\-\-type=TYPE       type of tree [squarified]
+\-\-xfields=EVALS   x location of each field
+\-\-yfields=EVALS   y location of each field
+.fi
+./"################################################################
+.SH "OPTIONS"
+./"################################################################
+See savors-view(7) for detailed descriptions of the options that
+are available to all views.
+.IP "\fB\-\-face=FONT\fP"
+The name of a font face available on the system that will be used to
+label regions.  Note that this option is only applicable on Microsoft
+Windows systems.  The default is "Arial".
+.IP "\fB\-\-font=PATH\fP"
+The path to an alternate font file.  By default, the open source
+DejaVuSansCondensed font is used, which is included in the Savors
+distribution.
+.IP "\fB\-\-show=INTS\fP"
+An integer specifying the maximum number of items to show at each level.
+Items are ordered by size so once the number of items reaches the
+maximum, items excluded will have areas smaller than the ones shown.
+.IP "\fB\-\-type=TYPE\fP"
+The type of tree plot to show with supported values of histo,
+squarified, and weighted (see "Subtypes" above).  The default is
+squarified.
+.IP "\fB\-\-xfields=EVALS\fP"
+A comma-separated list of expressions (see savors-expr(7)) indicating
+the relative horizontal location of each of the corresponding fields in
+\fB\-\-fields\fP.  This option is used in the histo and weighted
+subtypes to place regions in horizontal positions that more closely
+resemble some external mapping.  For example, in geographical data,
+this would correspond to longitude.
+.IP "\fB\-\-yfields=EVALS\fP"
+A comma-separated list of expressions (see savors-expr(7)) indicating
+the relative vertical location of each of the corresponding fields in
+\fB\-\-fields\fP.  This option is used in the histo and weighted
+subtypes to place regions in vertical positions that more closely
+resemble some external mapping.  For example, in geographical data,
+this would correspond to latitude.
+./"################################################################
+.SH "EXAMPLES"
+./"################################################################
+Show a squarified treemap of user processes by CPU consumption.  In
+this example, the top command is invoked in batch mode to collect
+running processes with the time extracted from the header emitted
+periodically.  Users are shown at the topmost level with the commands
+running for each grouped underneath and sized according to CPU
+consumption.  Regions are colored by command name so that similar
+commands can be seen across users.
+.PP
+.RS
+.nf
+env grep='^\s*\d' grep_v=' root ' time=f3 time_grep='^top' top -b -d 10 \\
+    |tree --color=f12 --fields=f2,f12,f9+.01 --period=10
+.fi
+.RE
+./"################################################################
+.SH "FILES"
+./"################################################################
+/etc/savorsrc
+.RS
+This file specifies various global configuration items including
+screen and geometry preferences, file paths, default options, and
+preconfigured views.  See savorsrc(5).
+.RE
+.PP
+$HOME/.savorsrc
+.RS
+This file specifies per user overrides of global configuration and
+saved views.  See savorsrc(5).
+.RE
+./"################################################################
+.SH "AUTHOR"
+./"################################################################
+Savors was written by Paul Kolano.
+./"################################################################
+.SH "SEE ALSO"
+./"################################################################
+savors(1), savors-axis (7), savors-chart(7), savors-cloud(7),
+savors-data(7), savors-expr(7), savors-graph(7), savors-grid(7),
+savors-map(7), savors-rain(7), savors-view(7), savorsrc(5)

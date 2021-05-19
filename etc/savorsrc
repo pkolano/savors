@@ -15,7 +15,6 @@
 #anon_key nodefault
 
 # destination file for debug output
-#   (only intended for development)
 #   (example: debug_file /home/user1/dbg.txt)
 #debug_file nodefault
 
@@ -62,7 +61,7 @@ lib_dir /usr/local/lib/savors
 # ==================
 
 # parallel coordinate plot of user process resource consumption
-save_axis_ps env repeat=15 sed='(\d)[-:](\d)/$1$2' grep_v='^USER' label_grep='^USER' ps -Nu root -o user,uid,pid,thcount,rsz,sz,vsz,time,etime,comm |axis --type=parallel --color=f10 --fields=f2-f9 --max=65535,100000,64,5000000,3000000,3000000,20000000,50000000 --period=10 --lines=600
+save_axis_ps env repeat=15 sed='(\d)[-:](\d)/$1$2' grep_v='^USER' label_grep='^USER' ps -Nu root -o user,uid,pid,nlwp,rsz,sz,vsz,time,etime,comm |axis --type=parallel --color=f10 --fields=f2-f9 --max=65535,100000,64,5000000,3000000,3000000,20000000,50000000 --period=10 --lines=600
 
 # stacked bar chart of user process cpu consumption
 save_chart_top env grep='^\s*\d' grep_v=' root ' time=f3 time_grep='^top' top -b -d 10 |chart --type=stackedbar --color=f12 --fields=f9+.01 --period=10

@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2010 United States Government as represented by the
+# Copyright (C) 2010-2021 United States Government as represented by the
 # Administrator of the National Aeronautics and Space Administration
 # (NASA).  All Rights Reserved.
 #
@@ -36,6 +36,9 @@
 
 package Savors::View::Graph;
 
+use Savors::FatPack::GPL;
+use Savors::FatPack::PAL;
+
 use strict;
 use File::Temp;
 use GD;
@@ -47,11 +50,11 @@ use POSIX;
 use Tie::IxHash;
 use Tk;
 use Tk::PNG;
-use XML::Simple;
+use XML::TreePP;
 
 use base qw(Savors::View);
 
-our $VERSION = 0.21;
+our $VERSION = 2.2;
 
 #############
 #### new ####
@@ -130,7 +133,7 @@ sub help {
         "    graph - various graphs          " .
             "    graph --color=f2 --fields=f15,f1 --period=15 --type=fdp\n";
     } else {
-        "USAGE: env OPT=VAL... (ARGS... |...) |graph ...\n\n" .
+        "USAGE: env OPT=VAL... (ARGS... |...) |graph --opt=val...\n\n" .
         "TYPES: circo,dot,easy,fdp,neato,sequence,sfdp,twopi\n\n" .
         "OPTIONS:                                           EXAMPLES:\n" .
         "        --color=EVAL - expression to color edges by" .
@@ -143,12 +146,11 @@ sub help {
             "    --fields=f4,f6\n" .
         "        --label=EVAL - expression to label edges by" .
             "    --label=f2\n" .
-        "            --legend - show color legend           " .
-            "    --legend\n" .
-        "          --max=INTS - max value of each field     " .
-            "    --max=100,10,50\n" .
-        "          --min=INTS - min value of each field     " .
-            "    --min=50,0,10\n" .
+        "     --legend[=SIZE] - show color legend           \n" .
+        "                         [REAL width or INT pixels]" .
+            "    --legend=0.2\n" .
+        "     --legend-pt=INT - legend font point size      " .
+            "    --legend-pt=12\n" .
         "       --period=REAL - time between updates        " .
             "    --period=15\n" .
         "         --swap=EVAL - condition to reverse edge   " .
@@ -275,6 +277,7 @@ sub view {
     } else {
         return if (!scalar(keys %{$self->{nodes}}));
         if ($self->getopt('type') eq 'sequence') {
+#TODO: show visual error when mscgen/graphviz not installed
             $self->view_sequence;
         } else {
             $self->view_graphviz;
@@ -304,8 +307,10 @@ sub view_easy {
         # return may be undefined during timeout
         return;
     }
-    my $svg = XMLin($easy_svg,
-        ForceArray => [qw(g line)], KeyAttr => [], NormalizeSpace => 2);
+    my $xml = XML::TreePP->new(attr_prefix => "", text_node_key => "content",
+        force_array => [qw(g line)]);
+    my $svg = $xml->parse($easy_svg);
+    $svg = $svg->{svg};
     my $sx = 1.0 * $self->{width} / $svg->{width};
     my $sy = 1.0 * $self->{height} / $svg->{height};
     $self->{canvas}->delete('!legend');
@@ -399,10 +404,11 @@ sub view_graphviz {
         1.0 * $self->{height} / $self->getopt('dpi'), "\";\n";
     print $out "node [style=filled];\n";
 
-    while (my ($label, $color) = each %{$self->{nodes}}) {
+    foreach my $label (sort keys(%{$self->{nodes}})) {
+        my $color = $self->{nodes}->{$label};
         print $out "\"$label\" [label=\"$label\", color=\"$color\"];\n";
     }
-    foreach (keys(%{$self->{edges}})) {
+    foreach (sort keys(%{$self->{edges}})) {
         my ($src, $dst, $color, $label) = split(/,/);
         my $l = $label ? ", label=\"$label\", fontcolor=\"$color\"" : "";
         print $out "\"$src\" -> \"$dst\" [color=\"$color\"$l];\n";

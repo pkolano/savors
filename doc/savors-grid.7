@@ -1,0 +1,127 @@
+.TH "savors-grid" "7" "18 May 2021" "" ""
+./"################################################################
+.SH "NAME"
+./"################################################################
+\fBsavors-grid\fP \(em plot items arranged in a grid showing
+relationships between fields or between field values over time
+./"################################################################
+.SH "SYNOPSIS"
+./"################################################################
+.nf
+env OPT=VAL... (ARGS... |...) |grid --opt=val...
+.fi
+.PP
+Display a grid view based on the given data pipeline.
+./"################################################################
+.SH "DESCRIPTION"
+./"################################################################
+The grid view type plots data line items as a matrix of boxes.  Boxes
+may represent relative value over time, adjacency, or containment
+depending on which of the three subtypes is used.
+./"################################################################
+.SH "SUBTYPES"
+./"################################################################
+The grid view has three subtypes.
+.IP graph
+Plot an adjacency matrix where the first field corresponds to row
+entries and the remaining fields correspond to column entries.
+A box in a given row and column indicates that an edge exists from the
+row label to the column label.
+.IP heat
+Plot a classic heat map where rows correspond to the label generated for
+each data line and columns to the value of the given field at each point
+in time.  When more than one field expression is specified, a row will
+be created for each pair of label and field expression.
+.IP set
+Plot a static grid where the first field corresponds to row entries and
+the remaining fields correspond to column entries.  Conceptually, all
+the rows with boxes in a given column are members of the set indicated
+by the column label.
+./"################################################################
+.SH "OPTIONS SUMMARY"
+./"################################################################
+The following options are specific to the grid view.  See savors-view(7)
+for additional options that are available to all views.  Defaults are
+shown in brackets.  The \(cq\&=\(cq\& for options that take a parameter
+is optional; whitespace may be used instead.  Detailed descriptions are
+given in following sections.
+.PP
+.nf
+\-\-label=EVAL expression to label by
+\-\-lines=INT  number of periods to show [20]
+\-\-max=INTS   max value of each field
+\-\-min=INTS   min value of each field
+\-\-swap=EVAL  condition to reverse edge
+\-\-type=TYPE  type of grid [heat]
+.fi
+./"################################################################
+.SH "OPTIONS"
+./"################################################################
+See savors-view(7) for detailed descriptions of the options that
+are available to all views.
+.IP "\fB\-\-label=EVAL\fP"
+A Savors expression (see savors-expr(7)) that will be evaluated against
+each data line to determine the label that should be shown for the edge
+created.  By default, no label is shown.
+.IP "\fB\-\-lines=INT\fP"
+An integer specifying the number of data lines to show at once.  After
+the limit is reached, the oldest data line will be replaced with the
+newest.
+.IP "\fB\-\-max=REALS\fP"
+A comma-separated list of real numbers indicating the maximum value of
+each of the corresponding fields in \fB\-\-fields\fP.  Values greater
+than the maximum will be adjusted to the maximum.  The number of values
+given must match the number of fields.
+.IP "\fB\-\-min=REALS\fP"
+A comma-separated list of real numbers indicating the minimum value of
+each of the corresponding fields in \fB\-\-fields\fP.  Values less
+than the minimum will be adjusted to the minimum.  The number of values
+given must match the number of fields.
+.IP "\fB\-\-swap=EVAL\fP"
+A Savors expression (see savors-expr(7)) that will be evaluated against
+each data line to determine if the edge between nodes should be reversed.
+Edges will be reversed for non-zero, non-empty values.
+.IP "\fB\-\-type=TYPE\fP"
+The type of grid to plot with supported values of graph, heat, and set 
+(see "Subtypes" above).  The default is heat.
+./"################################################################
+.SH "EXAMPLES"
+./"################################################################
+Show an adjacency matrix of file system mount options.  In this example,
+the mount command is invoked every 15 seconds and output separated by
+whitespace and colons split into fields.  The set of options for each
+mount point can be seen by traversing across a row while the set of
+options shared by all mount points can be seen by traversing down a
+column.
+.PP
+.RS
+.nf
+env split='\s+|\s*,\s*' sed='\(|\)|\S*addr=\S*/' repeat=15 mount \\
+    |grid --type=graph --color=f3 --fields=f3,f5-fL --period=10
+.fi
+.RE
+./"################################################################
+.SH "FILES"
+./"################################################################
+/etc/savorsrc
+.RS
+This file specifies various global configuration items including
+screen and geometry preferences, file paths, default options, and
+preconfigured views.  See savorsrc(5).
+.RE
+.PP
+$HOME/.savorsrc
+.RS
+This file specifies per user overrides of global configuration and
+saved views.  See savorsrc(5).
+.RE
+./"################################################################
+.SH "AUTHOR"
+./"################################################################
+Savors was written by Paul Kolano.
+./"################################################################
+.SH "SEE ALSO"
+./"################################################################
+savors(1), savors-axis(7), savors-chart(7), savors-cloud(7),
+savors-data(7), savors-expr(7), savors-graph(7), savors-map(7),
+savors-rain(7), savors-tree(7), savors-view(7), savorsrc(5)

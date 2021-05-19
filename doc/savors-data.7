@@ -1,0 +1,338 @@
+.TH "savors-data" "7" "18 May 2021" "" ""
+./"################################################################
+.SH "NAME"
+./"################################################################
+\fBsavors-data\fP \(em an internal Savors component producing and
+processing data streams used by views
+./"################################################################
+.SH "SYNOPSIS"
+./"################################################################
+.nf
+env OPT=VAL... (ARGS... |...)
+.fi
+.PP
+Invoke the command represented by ARGS while processing output according
+to the given data directive options and sending resulting output to
+views that subscribe to it.
+./"################################################################
+.SH "DESCRIPTION"
+./"################################################################
+The savors-data command is an internally-invoked component of Savors
+that interacts with external commands to ingest and process data that is
+sent to subscribed views and the console.  It is not meant to be
+directly invoked by users, but is implicitly invoked as all but the
+final view element of the given command pipeline.
+.PP
+This document does not describe the options and behavior of the actual
+underlying savors-data command.  Instead, it describes the common
+user-facing data directives that are available through the Savors
+command line.
+./"################################################################
+.SH "DIRECTIVES SUMMARY"
+./"################################################################
+The following directives are available during processing of data
+lines.  Detailed descriptions are given in following sections.
+.PP
+.RS
+.nf
+color=EVAL          expression to color by
+ctype=CTYPE         method to assign colors by
+cut=FIELDS          keep matching fields
+data=STRINGS        create parallel data streams
+grep=REGEX          keep matching lines
+grep_v=REGEX        discard matching lines
+host=STRING         host to run data server on
+label=STRING|FIELDS default field labels
+label_grep=REGEX    line containing labels
+layout=LAYOUT       layout for view directive
+repeat=REAL         repeat ARGS every interval
+replay=REAL         replay file ARGS[0] at speed
+sed=REGEX/STRING    replace matches with string
+split=REGEX         field separator
+sync=INT            synchronization group
+tee=FILE            write output to file
+tee_a=FILE          append output to file
+time=FIELDS         fields representing date/time
+time_grep=REGEX     line containing time/iteration
+view=STRINGS        create multi-view windows
+.fi
+.RE
+.PP
+Directives are processed in the following order:
+.PP
+.PD 0
+.RS
+.IP 1.
+data/host/layout/sync/view
+.IP 2.
+replay
+.IP 3.
+repeat
+.IP 4.
+time+time_grep
+.IP 5.
+label+label_grep
+.IP 6.
+grep_v
+.IP 7.
+grep
+.IP 8.
+sed
+.IP 9.
+split
+.IP 10.
+time-time_grep
+.IP 11.
+color/ctype
+.IP 12.
+cut
+.IP 13.
+tee/tee_a
+.PD
+.RE
+./"################################################################
+.SH "DIRECTIVES"
+./"################################################################
+.IP color=EVAL
+The expression used to assign a color to each data line (see
+savors-expr(7)).  The expression is evaluated against the data fields
+to produce a value, with each unique value assigned a color according to
+the "ctype" directive.  All data lines that evaluate to the same value
+will produce the same color.  If the expression returns an RGB hex color
+in the form "#XXXXXX" where X is a hex digit, that color will be used.
+.IP ctype=CTYPE
+The specification of how to assign colors to the value produced by the
+"color" directive.  By default, colors are assigned in round robin
+fashion against the default color palette in the order received.  While
+sufficient for one-time visualizations, the coloring of the same view
+against slightly differing data sets will likely be inconsistent, which
+may make it unsuitable for multi-use visualizations.  Two color type
+specifications are currently available that may be used to change this
+behavior.
+.RS
+.PP
+The type "hash:EVAL" takes an expression representing a hash function
+and computes the value when the Perl variable "$_" is set to the data
+line's "color" value and then uses the modulo of the resulting hash
+value against the color palette.  In this way, the same "color" value
+will always produce the same color.  When just "hash" is used, the
+default hash function is "crc32($_)" (see "Functions" in savors-view(7)).
+.PP
+The type "heat:NUM:NUM" assigns colors using a heatmap-style rainbow
+mapping.  The two numbers define the thresholds at which all "color"
+values will be assigned the "coldest" and "warmest" colors,
+respectively.  When just "heat" is used, it is assumed all "color"
+values will be a fraction between 0 and 1.  The form
+"heat:NUM:NUM:RGB:RGB" may be used to assign colors as a transition
+between the first (coldest) and second (warmest) colors given as RGB hex
+colors (see "color") instead of the default rainbow mapping.
+.RE
+.IP cut=FIELDS
+A comma-separated list of fields (see "Variables" in savors-view(7))
+that will be kept in the data stream.  Fields may be reordered as
+desired.  Subscribed views (see savors-view(7)) should reference fields
+by their new numbers and order.  Note that other data directives should
+still reference fields by their original numbers and order.
+.IP data=STRINGS
+A comma-separated list of arbitrary strings and/or special expressions of
+the form "i-j" for integers i and j representing the list i, i+1, ...,
+j.  When specified, this directive will create a separate parallel data
+stream for each value in the list.  The value associated with each
+stream can be referenced as the variable "fD" (see savors-expr(7)) and
+used in any other directive, command, and/or view.
+.IP grep=REGEX
+A regular expression in Perl syntax (see perlre(1)) that is applied to
+each data line.  Only lines matching the expression will be kept in the
+data stream.
+.IP grep_v=REGEX
+A regular expression in Perl syntax (see perlre(1)) that is applied to
+each data line.  Only lines not matching the expression will be kept in
+the data stream.
+.IP host=STRING
+Spawn the data server on an alternate host before the data pipeline is
+created.  The host must be accessible via a non-interactive ssh
+authentication method such as publickey or hostbased.  Note that TCP
+sockets must be used in this configuration (see "tcp" in savorsrc(5)
+and/or \fB\-\-tcp\fP in savors(1).  Note that this is where the actual
+data server component runs and not where data is gathered from, which
+can be adjusted using traditional techniques such as supplying an ssh
+remote command as part of ARGS.
+.IP label=STRING|FIELDS
+A comma-separated list of fixed strings or expressions (see
+savors-expr(7)) that, when evaluated against data lines matching the
+"label_grep" regex, specifies the labels to be used in all views
+subscribing to this data pipeline.  The default value is "f1-fL", which
+indicates all fields in matching data lines.  Strings do not need to
+be quoted unless they contain whitespace.
+.IP label_grep=REGEX
+A regular expression in Perl syntax (see perlre(1)) that is applied to
+each data line.  Fields specified in the "label" directive will be
+extracted from lines matching the expression.
+.IP layout=LAYOUT
+A single window can be arbitrarily subdivided into subwindows in a
+single command.  The "view" directive specifies the parameters to use
+in each view.  The "layout" directive specifies the arrangement of
+windows in the current region.  Layouts are any combination of grids
+(WxH), vertical splits (L|R), and horizontal splits (T-B), with grids
+having a higher precedence than splits.  For vertical splits, the
+shorthand "I|J" for integers I and J may be used to represent "1xI|1xJ".
+Similarly, for horizontal splits, the shorthand "I-J" may be used to
+represent "Ix1-Jx1".  For example, .RS
+.PP
+.RS
+.nf
+layout='(4-1)|(3x2)'
+.fi
+.RE
+.PP
+would represent a layout where the left half of the window has 4
+subwindows on top with 1 subwindow on the bottom and the right half of
+the window has 6 subwindows arranged in 2 rows of 3 columns.
+.RE
+.IP repeat=REAL
+A real number indicating a periodic interval in seconds at which ARGS
+should be rerun.  This allows commands that produce output once and exit
+to be used in periodic fashion.
+.IP replay=REAL
+A non-negative real number indicating the speed at which a replay file
+given as ARGS[0] should be played.  The file must have been previously
+produced using the "tee" or "tee_a" directives.  A speed of one
+indicates the file should be replayed at its original speed.  If set to
+zero, the file will be played as fast as possible.
+.IP sed=REGEX/STRING
+A regular expression in Perl syntax (see perlre(1)) followed by a slash
+and then a replacement string in Perl syntax (see "Regexp Quote-Like
+Operators" in perlop(1)).  Any text matching the given regex in each
+data line will be replaced according to the given replacement string.
+Note the order of directive processing in "DIRECTIVES SUMMARY" to
+understand how this affects other directives.
+.IP split=REGEX
+A regular expression in Perl syntax (see perlre(1)) that indicates how 
+data lines should be split up into fields.  By default, lines are split
+by whitespace.
+.IP sync=INT
+A non-negative integer indicating the synchronization group to which the
+associated data stream belongs.  Data lines in the same group will be
+processed in temporal order.  This may result in unexpected behavior
+when mixing data streams representing significantly different time
+periods as newer streams may be held until all older data is
+processed.  By default, all data streams belong to the same sync group
+"1".  A value of zero indicates the data stream should be processed
+independently of all others.  The sync group also affects the pause
+window and pause all features of the console (see savors(1)).
+Pausing/unpausing the window will pause/unpause data streams in any of
+the sync groups associated with the current window while
+pausing/unpausing all will pause/unpause all data streams regardless of
+sync group.
+.IP tee=FILE
+Write post-processed output to the given file, which is suitable for
+replay using the "replay" directive.  In addition to the fields
+produced by the data directives, each line of output will have a time, a
+value for the "data" directive, and a color, joined by a colon,
+prepended to each data line.
+.IP tee_a=FILE
+Append post-processed output to the given file, which is suitable for
+replay using the "replay" directive.  In addition to the fields
+produced by the data directives, each line of output will have a time, a
+value for the "data" directive, and a color, joined by a colon,
+prepended to each data line.
+.IP time=FIELDS
+A a comma-separated list of expressions (see savors-expr(7)) that, when
+evaluated against each data line, specifies the time to be associated
+with it.  When concatenated with whitespace, the final list of values
+must be in a format supported by Date::Parse (see Date::Parse(3pm)).  If
+this directive is not specified, the time at which each data line is
+received will be used as its time.  When a "time_grep" directive is
+specified, the time will be parsed out of only lines matching the given
+regular expression and applied to all incoming data lines until the next
+match.
+.IP time_grep=REGEX
+A regular expression in Perl syntax (see perlre(1)) that is applied to
+each data line.  Fields specified in the "time" directive will be
+extracted from lines matching this expression.
+.IP view=STRINGS
+A single window can be arbitrarily subdivided into subwindows in a
+single command.  The "view" directive specifies the parameters to use
+in each view.  The "layout" directive specifies the arrangement of
+windows in the current region.  A new subwindow is spawned for each view
+value.  Before spawning, the special variable "fV" is replaced by each
+value in data generator pipelines and view options (see
+savors-expr(7)).  For example: .RS
+.PP
+.RS
+.nf
+env view=1-4 layout=2x2 ssh hostfV ...
+.fi
+.RE
+.PP
+would create a view for each of four hosts host[1-4] in a 2x2 grid.
+.RE
+./"################################################################
+.SH "EXAMPLES"
+./"################################################################
+The following examples only show the data directive portion of the
+Savors command pipeline and do not show the view portion.
+.PP
+Generate data lines by running the "top" command in batch mode at 10
+second intervals while excluding root processes and including only lines
+that have a digit as the first non-whitespace character.  The time is
+extracted from the third field of lines that begin with "top".
+.PP
+.RS
+.nf
+env grep='^\s*\d' grep_v=' root ' time=f3 time_grep='^top' top -b -d 10
+.fi
+.RE
+.PP
+Generate data lines by running the "mount" command every 15 seconds
+while removing parentheses and "addr" options, and splitting fields
+by whitespace or commas with or without surrounding whitespace.
+.PP
+.RS
+.nf
+env split='\s+|\s*,\s*' sed='\(|\)|\S*addr=\S*/' repeat=15 mount
+.fi
+.RE
+.PP
+Generate eight  parallel data streams consisting of the contents of
+/var/log/syslog on hosts secret1 through secret8.  Color lines by host
+with time parsed from the standard syslog format in the first three
+fields.  Crudely anonymize the host names by replacing their original
+secret names "secretN" with generic names "hostN" that can be more
+readily shared.  Create three views with one full width view over two
+half width views that would show all output and two particular hosts of
+interest when combined with the option "--grep=fV" in a corresponding
+rain view.
+.PP
+.RS
+.nf
+env data=1-8 layout=1-2 view=.,host2,host5 color=fD time=f1-f3 \\
+    sed='secret/host' ssh secretfD cat /var/log/syslog
+.fi
+.RE
+./"################################################################
+.SH "FILES"
+./"################################################################
+/etc/savorsrc
+.RS
+This file specifies various global configuration items including
+screen and geometry preferences, file paths, default options, and
+preconfigured views.  See savorsrc(5).
+.RE
+.PP
+$HOME/.savorsrc
+.RS
+This file specifies per user overrides of global configuration and
+saved views.  See savorsrc(5).
+.RE
+./"################################################################
+.SH "AUTHOR"
+./"################################################################
+Savors was written by Paul Kolano.
+./"################################################################
+.SH "SEE ALSO"
+./"################################################################
+Date::Parse(3pm), perlop(1), perlre(1), savors(1), savors-axis(7),
+savors-chart(7), savors-cloud(7), savors-expr(7), savors-graph(7),
+savors-grid(7), savors-map(7), savors-rain(7), savors-tree(7),
+savors-view(7), savorsrc(5)

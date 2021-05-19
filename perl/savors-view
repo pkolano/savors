@@ -1,6 +1,6 @@
 #!/usr/bin/env perl
 #
-# Copyright (C) 2010 United States Government as represented by the
+# Copyright (C) 2010-2021 United States Government as represented by the
 # Administrator of the National Aeronautics and Space Administration
 # (NASA).  All Rights Reserved.
 #
@@ -40,6 +40,7 @@ use File::Temp qw(tmpnam);
 use Getopt::Long qw(:config bundling no_ignore_case require_order);
 use IO::Socket::INET;
 use IO::Socket::UNIX;
+use List::Util qw(max);
 use MIME::Base64;
 use POSIX;
 use Storable qw(thaw);
@@ -50,7 +51,7 @@ use Savors::Debug;
 
 use sigtrap qw(handler quit error-signals normal-signals);
 
-our $VERSION = 0.21;
+our $VERSION = 2.2;
 
 my %opts = (
     buffer => [],
@@ -59,6 +60,7 @@ my %opts = (
     console => undef,
     display => ':0.0',
     offset => 0,
+    passive => 0,
     servers => {},
     sheight => 1,
     smaxx => 1,
@@ -71,9 +73,9 @@ my %opts = (
     twidth => 0,
 );
 GetOptions(\%opts,
-    "command=s", "display=s", "frame", "sheight=f", "smaxx=f", "smaxy=f",
-    "swidth=f", "sx=f", "sy=f", "tcp", "theight=i", "twidth=i", "vgeometry=s",
-    "view=s",
+    "command=s", "display=s", "frame", "passive", "sheight=f", "smaxx=f",
+    "smaxy=f", "swidth=f", "sx=f", "sy=f", "tcp", "theight=i", "twidth=i",
+    "vgeometry=s", "view=s",
 ) or die;
 
 die if (!$opts{view});
@@ -97,7 +99,7 @@ if ($opts{tcp}) {
 }
 
 # detach process
-exit if (fork);
+_exit(0) if (fork);
 close STDIN;
 close STDOUT;
 close STDERR;
@@ -113,6 +115,7 @@ $SIG{__DIE__} = sub {
 END {
     our @exception;
     debug(scalar localtime(time), " savors-view: ", @exception) if (@exception);
+    quit();
 }
 
 #####################
@@ -130,28 +133,45 @@ $top->bind('<Control-c>', \&quit);
 $top->bind('<Control-s>', sub {
     syswrite($opts{console}, "save\n") if ($opts{console});
 });
+$top->bind('<Down>', sub {
+    syswrite($opts{console}, "step\n") if ($opts{console});
+});
 # keep console focus after spawning window
 $top->bind('<FocusIn>', sub {
     syswrite($opts{console}, "focus\n") if ($opts{console});
+});
+$top->bind('<j>', sub {
+    syswrite($opts{console}, "step\n") if ($opts{console});
+});
+$top->bind('<t>', sub {
+    syswrite($opts{console}, "step_time\n") if ($opts{console});
+});
+$top->bind('<z>', sub {
+    syswrite($opts{console}, "pause\n") if ($opts{console});
 });
 
 @ARGV = @argv_save;
 $top->overrideredirect(1) if (!$opts{frame});
 $top->resizable(0, 0);
 
-if ($opts{vgeometry} =~ /(r?\d+)x(\d+)([+\-])(-?\d+)([+\-])(-?\d+)/) {
+if ($opts{vgeometry} =~ /(r?\d+)x(r?\d+)([+\-])(-?\d+)([+\-])(-?\d+)/) {
     my ($w, $h, $xsign, $xoff, $ysign, $yoff) = ($1, $2, $3, $4, $5, $6);
-    my $rel = $w =~ s/^r//;
-    $opts{maxx} = int($w * ($rel ? $top->screenwidth : 1));
-    $opts{maxy} = int($h * ($rel ? $top->screenheight : 1));
-    $opts{xoff} = int($xoff * ($rel ? $top->screenwidth : 1));
-    $opts{yoff} = int($yoff * ($rel ? $top->screenheight : 1));
+    my $relx = $w =~ s/^r//;
+    my $rely = $h =~ s/^r//;
+    $opts{maxx} = int($w * ($relx ? $top->screenwidth : 1));
+    $opts{maxy} = int($h * ($rely ? $top->screenheight : 1));
+    $opts{xoff} = int($xoff * ($relx ? $top->screenwidth : 1));
+    $opts{yoff} = int($yoff * ($rely ? $top->screenheight : 1));
     $opts{xsign} = $xsign;
     $opts{ysign} = $ysign;
-} elsif ($opts{vgeometry} =~ /(\d+)x(\d+)/) {
+} elsif ($opts{vgeometry} =~ /([mr]?\d+)x([mr]?\d+)/) {
     my ($w, $h) = ($1, $2);
-    $opts{maxx} = $w;
-    $opts{maxy} = $h;
+    (my $modx, $w) = ($1, $2) if ($w =~ /([mr])(\d+)/);
+    (my $mody, $h) = ($1, $2) if ($h =~ /([mr])(\d+)/);
+    $opts{maxx} = $modx eq 'm' ? max($w, $top->screenwidth) :
+        ($modx eq 'r' ? int($w * $top->screenwidth) : $w);
+    $opts{maxy} = $mody eq 'm' ? max($h, $top->screenheight) :
+        ($mody eq 'r' ? int($h * $top->screenheight) : $h);
     $opts{xsign} = "+";
     $opts{ysign} = "+";
 } else {
@@ -236,9 +256,14 @@ sub process {
         my $file = $1;
         $file =~ s/\s+$//;
         $view->save($file);
+        open(DONE, '>', "$file.done");
+        close DONE;
     } elsif ($msg =~ /^server\s+(\S+)/) {
         my $server = $1;
-        if (!$opts{servers}->{$server}) {
+        if ($opts{passive} && $opts{console}) {
+            # notify console that need inbound data connection
+            syswrite($opts{console}, $msg . "\n");
+        } elsif (!$opts{passive} && !$opts{servers}->{$server}) {
             my $sock;
             if ($opts{tcp}) {
                 $sock = IO::Socket::INET->new(
@@ -282,7 +307,12 @@ sub readable {
         my $sock = $fh->accept;
         $sock->blocking(0);
         $top->fileevent($sock, 'readable', [\&readable, $sock]);
-        $opts{console} = $sock;
+        if (!$opts{console}) {
+            $opts{console} = $sock;
+        } else {
+            # this is passive case where server connects to view
+            $opts{servers}->{$sock} = $sock;
+        }
         return;
     }
     my ($len, $tmp);

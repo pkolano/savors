@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2010 United States Government as represented by the
+# Copyright (C) 2010-2021 United States Government as represented by the
 # Administrator of the National Aeronautics and Space Administration
 # (NASA).  All Rights Reserved.
 #
@@ -36,13 +36,16 @@
 
 package Savors::Console::Wall;
 
+use Savors::FatPack::PAL;
+
 use strict;
 use String::ShellQuote;
 
 use base qw(Savors::Console::Level);
 use Savors::Console::Layout;
+use Savors::Debug;
 
-our $VERSION = 0.02;
+our $VERSION = 2.2;
 
 #############
 #### new ####
@@ -61,12 +64,31 @@ sub new {
     $displays = "localhost" if (!$displays);
     $self->{displays} = [split(/,/, $displays)];
 
+    $self->{canvas} = undef;
     $self->{children} = [];
     $self->{current} = 0;
+    $self->{text} = undef;
 
     $self->create;
 
     return $self;
+}
+
+##############
+#### bbox ####
+##############
+sub bbox {
+    return [1, 1, 0, 0];
+}
+
+################
+#### canvas ####
+################
+sub canvas {
+    my $self = shift;
+    my $canvas = shift;
+    $self->{canvas} = $canvas if (defined $canvas);
+    return $self->{canvas};
 }
 
 ################
@@ -136,7 +158,7 @@ sub run {
     my $row2 = $row1 + $self->{rows} * $bbox->[1];
 
     my %ports;
-    my $vgeom0 = "r$self->{cols}x$self->{rows}";
+    my $vgeom0 = "r$self->{cols}xr$self->{rows}";
     for (my $r = int($row1); $r < $row2; $r++) {
         for (my $c = int($col1); $c < $col2; $c++) {
             my $dindex = $r * $self->{cols} + $c;
@@ -146,11 +168,11 @@ sub run {
                 my $vgeom = $vgeom0 . "+-$c+-$r";
                 my $display = $self->{displays}->[$dindex];
                 my ($host, $edisplay, $libdir) = split(/:/, $display);
-                $edisplay = ":" . $edisplay if (defined $edisplay);
+                $edisplay = ":" . $edisplay if ($edisplay);
                 my $cmd = $cmd0;
                 $cmd =~ s/(lib_dir=)\S+/$1$libdir/ if ($libdir);
-                $cmd =~ s/(--swidth)/--display=$edisplay $1/ if ($edisplay);
-                $cmd =~ s/(--swidth)/--vgeometry=$vgeom $1/
+                $cmd =~ s/(--view)/--display=$edisplay $1/ if ($edisplay);
+                $cmd =~ s/(--view)/--vgeometry=$vgeom $1/
                     if (scalar(@{$self->{displays}} > 1));
                 $cmd = "ssh -qx $host " . shell_quote($cmd)
                     if ($host ne 'localhost');
@@ -161,6 +183,16 @@ sub run {
         }
     }
     return \%ports;
+}
+
+##############
+#### text ####
+##############
+sub text {
+    my $self = shift;
+    my $text = shift;
+    $self->{text} = $text if (defined $text);
+    return $self->{text};
 }
 
 1;

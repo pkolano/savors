@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2010 United States Government as represented by the
+# Copyright (C) 2010-2021 United States Government as represented by the
 # Administrator of the National Aeronautics and Space Administration
 # (NASA).  All Rights Reserved.
 #
@@ -36,16 +36,19 @@
 
 package Savors::View::Chart;
 
+use Savors::FatPack::PAL;
+
 use strict;
 use MIME::Base64;
 use POSIX;
+require Statistics::Descriptive::Discrete;
 use Tie::IxHash;
 use Tk;
 use Tk::JPEG;
 
 use base qw(Savors::View);
 
-our $VERSION = 0.21;
+our $VERSION = 2.2;
 
 #############
 #### new ####
@@ -54,10 +57,14 @@ sub new {
     my $proto = shift;
     my $class = ref $proto || $proto;
     my $self = $class->SUPER::new(@_,
-        "date=s,fields2=s,label2=s,lines=i,splits=i,type2=s");
+        "date=s,fields2=s,form=s,form2=s,label2=s,lines=i,max2=i,min2=i,splits=i,type2=s");
     return undef if (!defined $self);
     bless($self, $class);
 
+    foreach (qw(form form2)) {
+        $self->{copts}->{$_} =~ s/^dev$/standard_deviation/;
+        $self->{copts}->{$_} =~ s/^var$/variance/;
+    }
     $self->{counts} = {};
     $self->{counts2} = {};
     tie(%{$self->{counts}}, 'Tie::IxHash');
@@ -65,6 +72,8 @@ sub new {
     $self->{counts}->{time} = [];
     $self->{count_index} = 0;
     $self->{dopts}->{date} = "%T";
+    $self->{dopts}->{form} = "sum";
+    $self->{dopts}->{form2} = "sum";
     $self->{dopts}->{period} = 1;
     $self->{dopts}->{splits} = 5;
     $self->{dopts}->{type} = "mountain";
@@ -144,41 +153,53 @@ sub help {
         "    chart - various charts          " .
             "    chart --color=f2 --fields=f3 --type=bar --label=cpu\n";
     } else {
-        "USAGE: env OPT=VAL... (ARGS... |...) |chart ...\n\n" .
+        "USAGE: env OPT=VAL... (ARGS... |...) |chart --opt=val...\n\n" .
         "TYPES: bar,direction,errorbar,horizontalbar,line,linepoint," .
         "mountain,pareto,pie,point,split,stackedbar\n\n" .
-        "OPTIONS:                                           EXAMPLES:\n" .
-        "       --color=EVAL - expression to color by       " .
+        "FORMS: count,dev,max,mean,median,min,mode,sum,var\n\n" .
+        "OPTIONS:                                             EXAMPLES:\n" .
+        "       --color=EVAL - expression to color by         " .
             "    --color='q(host).fD'\n" .
-        "      --ctype=CTYPE - method to assign colors by   " .
+        "      --ctype=CTYPE - method to assign colors by     " .
             "    --ctype=hash:ord\n" .
-        "      --date=STRING - strftime format for time axis" .
-            "    --date='%m/%d %T\n" .
-        "     --fields=EVALS - expresssions to plot         " .
+        "      --date=STRING - strftime format for time axis  " .
+            "    --date='%m/%d %T'\n" .
+        "     --fields=EVALS - expresssions to plot           " .
             "    --fields=f22+f23\n" .
-        "    --fields2=EVALS - secondary expressions to plot" .
+        "    --fields2=EVALS - secondary expressions to plot  " .
             "    --fields2=f4-f10\n" .
-        "     --label=STRING - label of y axis              " .
+        "        --form=FORM - aggregate period data          " .
+            "    --form=median\n" .
+        "       --form2=FORM - aggregate secondary period data" .
+            "    --form2=min\n" .
+        "     --label=STRING - label of y axis                " .
             "    --label=Bytes/Sec\n" .
-        "    --label2=STRING - label of secondary y axis    " .
+        "    --label2=STRING - label of secondary y axis      " .
             "    --label2=Calls\n" .
-        "           --legend - show color legend            " .
-            "    --legend\n" .
-        "        --lines=INT - number of time lines to show " .
+        "    --legend[=SIZE] - show color legend              \n" .
+        "                        [REAL width or INT pixels]   " .
+            "    --legend=0.2\n" .
+        "    --legend-pt=INT - legend font point size         " .
+            "    --legend-pt=12\n" .
+        "        --lines=INT - number of time lines to show   " .
             "    --lines=60\n" .
-        "         --max=INTS - max value of each field      " .
-            "    --max=100,10,50\n" .
-        "         --min=INTS - min value of each field      " .
-            "    --min=50,0,10\n" .
-        "      --period=REAL - time between updates         " .
+        "          --max=INT - max value of y axis            " .
+            "    --max=100\n" .
+        "         --max2=INT - max value of secondary y axis  " .
+            "    --max2=50\n" .
+        "          --min=INT - min value of y axis            " .
+            "    --min=0\n" .
+        "         --min2=INT - min value of secondary y axis  " .
+            "    --min2=10\n" .
+        "      --period=REAL - time between updates           " .
             "    --period=15\n" .
-        "       --splits=INT - number of splits to plot     " .
+        "       --splits=INT - number of splits to plot       " .
             "    --splits=10\n" .
-        "     --title=STRING - title of view                " .
+        "     --title=STRING - title of view                  " .
             "    --title=\"CPU Usage\"\n" .
-        "        --type=TYPE - type of chart                " .
+        "        --type=TYPE - type of chart                  " .
             "    --type=stackedbar\n" .
-        "       --type2=TYPE - type of secondary chart      " .
+        "       --type2=TYPE - type of secondary chart        " .
             "    --type2=line\n" .
         "";
     }
@@ -244,7 +265,8 @@ sub play {
         foreach my $counts (qw(counts counts2)) {
             foreach (keys(%{$self->{$counts}})) {
                 splice(@{$self->{$counts}->{$_}}, 0, $splice) if ($splice > 0);
-                $self->{$counts}->{$_}->[$self->{count_index}] = 0;
+                $self->{$counts}->{$_}->[$self->{count_index}] =
+                    Statistics::Descriptive::Discrete->new;
             }
         }
     }
@@ -274,11 +296,18 @@ sub play {
                 @colors = map(hex, @colors);
                 $self->{"color_$fields0"}->{$ckey} = \@colors;
                 $self->{$counts}->{$ckey} = [];
-                push(@{$self->{$counts}->{$ckey}}, 0) for (1..$self->{count_index});
+                foreach (1..$self->{count_index}) {
+                    push(@{$self->{$counts}->{$ckey}},
+                        Statistics::Descriptive::Discrete->new);
+                }
             }
 
-            $self->{$counts}->{$ckey}->[$self->{count_index}] +=
-                eval $self->{$field_evals}->[$i];
+            if (!defined $self->{$counts}->{$ckey}->[$self->{count_index}]) {
+            	$self->{$counts}->{$ckey}->[$self->{count_index}] =
+                    Statistics::Descriptive::Discrete->new;
+            }
+            $self->{$counts}->{$ckey}->[$self->{count_index}]->add_data(
+                eval $self->{$field_evals}->[$i]);
             $i++;
         }
     }
@@ -294,19 +323,26 @@ sub view {
     my @keys = keys(%{$self->{counts}});
     # time is first so remove it
     shift @keys;
+    my $minmax;
     my %datasets;
     foreach (0 .. scalar(@keys) - 1) {
         $datasets{"dataset$_"} = $self->{color_fields0}->{$keys[$_]};
     }
-    if ($self->getopt('type') =~ /pie/i) {
+    if ($self->getopt('type') =~ /direction|pie/i) {
         $chart->add_dataset(@keys);
         $chart->add_dataset(map {$self->{counts}->{$_}->[-1]} @keys);
     } else {
         $chart->add_dataset(@{$self->{counts}->{time}});
-        $chart->add_dataset(@{$self->{counts}->{$_}}) foreach (@keys);
+        my $form = \&{"Statistics::Descriptive::Discrete::" . $self->getopt('form')};
+        foreach my $key (@keys) {
+            $chart->add_dataset(map {$form->($_)} @{$self->{counts}->{$key}});
+        }
         if (defined $self->{fields0_2}) {
             my @keys2 = keys(%{$self->{counts2}});
-            $chart->add_dataset(@{$self->{counts2}->{$_}}) foreach (@keys2);
+            my $form2 = \&{"Statistics::Descriptive::Discrete::" . $self->getopt('form2')};
+            foreach my $key (@keys2) {
+                $chart->add_dataset(map {$form2->($_)} @{$self->{counts2}->{$key}});
+            }
             foreach (scalar(@keys) .. scalar(@keys) + scalar(@keys2) - 1) {
                 $datasets{"dataset$_"} = $self->{color_fields0_2}->
                     {$keys2[$_ - scalar(@keys)]};
@@ -322,6 +358,11 @@ sub view {
             $ylabel2 = join(",", map {$self->label($_)} @{$self->{fields0_2}})
                 if (!$ylabel2);
             $chart->set("y_label2" => $ylabel2);
+            $chart->set(max_val2 => $self->getopt('max2'))
+                if (defined $self->getopt('max2'));
+            $chart->set(min_val2 => $self->getopt('min2'))
+                if (defined $self->getopt('min2'));
+            $minmax = "1";
         } elsif ($self->getopt('type') eq 'split') {
             $chart->set('brush_size' => 1);
             my $iv = int($self->{lines} / $self->getopt('splits'));
@@ -343,7 +384,12 @@ sub view {
     });
     $chart->set(graph_border => 1);
     $chart->set(grey_background => 0);
+    $chart->set(label_font => GD::Font->Giant);
     $chart->set(legend => 'none');
+    $chart->set("max_val$minmax" => $self->getopt('max'))
+        if (defined $self->{copts}->{max});
+    $chart->set("min_val$minmax" => $self->getopt('min'))
+        if (defined $self->{copts}->{min});
     $chart->set(png_border => 1);
     $chart->set(text_space => $self->{space});
     $chart->set(x_ticks => 'vertical');
@@ -357,13 +403,9 @@ sub view {
     $chart->set("skip_${x}_ticks" => $self->{skip});
     $chart->set("f_$x" . "_tick" =>
         sub {return strftime($self->getopt('date'), localtime($_[0]))});
-    $chart->set("f_$y" . "_tick" => sub {return sprintf('%.2g', $_[0])});
-    my ($fh, $image);
-    open($fh, ">", \$image);
-    $chart->jpeg($fh);
-    close $fh;
+    $chart->set("f_$y" . "_tick" => sub {return sprintf('%.6g', $_[0])});
     $self->{photo}->blank;
-    $self->{photo}->put(encode_base64($image));
+    $self->{photo}->put(encode_base64($chart->scalar_jpeg));
     $self->{photo}->idletasks;
 }
 

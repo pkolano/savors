@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2010 United States Government as represented by the
+# Copyright (C) 2010-2021 United States Government as represented by the
 # Administrator of the National Aeronautics and Space Administration
 # (NASA).  All Rights Reserved.
 #
@@ -40,7 +40,7 @@ use strict;
 use base qw(Exporter);
 
 our @EXPORT = qw(debug);
-our $VERSION = 0.22;
+our $VERSION = 2.2;
 
 my $file;
 
@@ -73,7 +73,7 @@ BEGIN {
 ###############
 sub debug {
     return if (!$file);
-    my $self = shift;
+    shift if (ref $_[0]);
     open(FILE, '>>', $file);
     print FILE @_, "\n";
     close FILE;

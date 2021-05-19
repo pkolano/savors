@@ -1,0 +1,125 @@
+.TH "savors-expr" "7" "18 May 2021" "" ""
+./"################################################################
+.SH "NAME"
+./"################################################################
+\fBsavors-expr\fP \(em the format of Savors expressions
+./"################################################################
+.SH "DESCRIPTION"
+./"################################################################
+An expression is a formula that is evaluated against each data line
+ingested by a view.  Data lines are produced by the data servers to
+which a view is subscribed (see savors-data(7)) and consist of a set of
+numbered fields starting from 1.  Savors expressions can be any valid
+Perl expression (see perlsyn(1)) with Savors-specific shorthands to
+simplify access to data fields and to perform certain built-in
+functions.  Note that any expression that is not one of the simple
+variable forms should be quoted (normally single-quoted).
+./"################################################################
+.SH "VARIABLES"
+./"################################################################
+.IP f#
+The value of a particular field staring from 1.  For example, "f4" would
+be the value of the 4th data field.
+.IP f#-f#
+An inclusive range of field values.  For example, "f2-f4" is a shorthand
+for "f2,f3,f4", which is a list of values of the 2nd, 3rd, and 4th data
+fields.  The "fL" variable may be used as the second term to indicate
+all fields up to and including the final field.
+.IP fC
+The color associated with the "color" data directive (see
+savors-data(7)).  Note that this is different than the color assigned by
+the \fB\-\-color\fP option.
+.IP fD
+The value associated with the "data" data directive (see savors-data(7)).
+.IP fL
+The value of the last field in the given data line.
+.IP fT
+The time (in seconds since Epoch) associated with the "time" and
+"time_grep" data directives (see savors-data(7)).
+.IP fV
+The value associated with the "view" data directive (see savors-data(7)).
+./"################################################################
+.SH "FUNCTIONS"
+./"################################################################
+A number of convenience functions can be used in expressions.  The
+currently supported functions include:
+.IP crc32(STRING)
+Return the CRC32 checksum of the given string.  This function is mainly
+intended for use in \fB\-\-ctype\fP hash expressions.
+.IP hostanon(HOST)
+Return the anonymized form of the given host name.  For a given value
+of the "anon_key" setting (see savorsrc(5)), the anonymized form will
+always be the same value for the same host, although not guaranteed to
+be unique between hosts.
+.IP hostip(IP)
+Return the IP address of the given host name or an empty string if the
+IP address cannot be determined.
+.IP ipanon(IP)
+Return the anonymized form of the given IP address.  For a given value
+of the "anon_key" setting (see savorsrc(5)), the anonymized form will
+always be the same value for the same IP address and will be a
+one-to-one prefix-preserving mapping.
+.IP ipcity(IP)
+Return the city name associated with a given IP address.  This
+function is only meaningful if a geolocation database was configured
+during installation.
+.IP ipcountry(IP)
+Return the country name associated with a given IP address.  This
+function is only meaningful if a geolocation database was configured
+during installation.
+.IP ipcountry2(IP)
+Return the ISO 3166-1 two-letter country code associated with the
+given IP address.  This function is only meaningful if a geolocation
+database was configured during installation.
+.IP iplat(IP)
+Return the latitude associated with a given IP address.  This function
+is only meaningful if a geolocation database was configured during
+installation.
+.IP iplong(IP)
+Return the longitude associated with a given IP address.  This
+function is only meaningful if a geolocation database was configured
+during installation.
+.IP ipstate(IP)
+Return the state name associated with a given IP address  This
+function is only meaningful if a geolocation database was configured
+during installation.
+.IP ipzip(IP)
+Return the postal code associated with a given IP address.  The format
+of the postal code will differ depending on the associated country.  For
+example, in the US, the postal code would be a 5 digit number.  This
+function is only meaningful if a geolocation database was configured
+during installation.
+.IP iptz(IP)
+Return the UTC time zone associated with a given IP address.  This
+function is only meaningful if a geolocation database was configured
+during installation.
+.IP useranon(USER)
+Return the anonymized form of the given user name.  For a given value
+of the "anon_key" setting (see savorsrc(5)), the anonymized form will
+always be the same value for the same user, although not guaranteed to
+be unique between users.
+./"################################################################
+.SH "FILES"
+./"################################################################
+/etc/savorsrc
+.RS
+This file specifies various global configuration items including
+screen and geometry preferences, file paths, default options, and
+preconfigured views.  See savorsrc(5).
+.RE
+.PP
+$HOME/.savorsrc
+.RS
+This file specifies per user overrides of global configuration and
+saved views.  See savorsrc(5).
+.RE
+./"################################################################
+.SH "AUTHOR"
+./"################################################################
+Savors was written by Paul Kolano.
+./"################################################################
+.SH "SEE ALSO"
+./"################################################################
+perlsyn(1), savors(1), savors-axis(7), savors-chart(7), savors-cloud(7),
+savors-data(7), savors-graph(7), savors-grid(7), savors-map(7),
+savors-rain(7), savors-tree(7), savors-view(7), savorsrc(5)

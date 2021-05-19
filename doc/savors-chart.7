@@ -1,0 +1,214 @@
+.TH "savors-chart" "7" "18 May 2021" "" ""
+./"################################################################
+.SH "NAME"
+./"################################################################
+\fBsavors-chart\fP \(em plot common chart types showing relative
+quantities of items occurring in the data
+./"################################################################
+.SH "SYNOPSIS"
+./"################################################################
+.nf
+env OPT=VAL... (ARGS... |...) |chart --opt=val...
+.fi
+.PP
+Display a chart view based on the given data pipeline.
+./"################################################################
+.SH "DESCRIPTION"
+./"################################################################
+The chart view type plots data over time using one of 12 traditional
+chart variants.  Composite charts of two different chart types can
+also be shown.  When displayed at a given period, data can be aggregated
+using a variety of statistical methods.
+./"################################################################
+.SH "SUBTYPES"
+./"################################################################
+The chart view has 12 subtypes.
+.IP bar
+Plot values as vertical bars with height indicating value.
+.IP direction
+Plot pairs of values using polar coordinates where the first value
+specifies the angle in degrees and the second specifies the magnitude
+of the vector at that angle.
+.IP errorbar
+Plot values as a point chart with error bars indicating variance of the
+value.
+.IP horizontalbar
+Plot values as horizontal bars with width indicating value.
+.IP line
+Plot values as line segments that are connected between consecutive
+points in time.
+.IP linepoint
+Plot values as line segments that are connected between consecutive
+points in time with each value also plotted as a point.
+.IP mountain
+Plot values as stacked regions with the distance between region borders
+indicating value.
+.IP pareto
+Plot values as a bar chart with an overlaid line chart indicating
+cumulative value.
+.IP pie
+Plot values as wedge-shaped regions of a circle where area indicates
+percentage of cumulative value.
+.IP point
+Plot values as points.
+.IP split
+Plot values along the time axis split up among multiple
+vertically-stacked line charts.
+.IP stackedbar
+Plot values as stacked vertical bars with the height of each bar in the
+stack indicating value.
+./"################################################################
+.SH "FORMS"
+./"################################################################
+Data lines shown periodically must be aggregated using a
+statistical method.  The chart view supports nine forms.
+.IP count
+Show the number of values in each period.
+.IP dev
+Show the standard deviation of the values in each period.
+.IP max
+Show the maximum of the values in each period.
+.IP mean
+Show the average of the values in each period.
+.IP median
+Show the median of the values in each period.
+.IP min
+Show the minimum of the values in each period.
+.IP mode
+Show the mode of the values in each period.
+.IP sum
+Show the sum of the values in each period.
+.IP var
+Show the variance of the values in each period.
+./"################################################################
+.SH "OPTIONS SUMMARY"
+./"################################################################
+The following options are specific to the chart view.  See
+savors-view(7) for additional options that are available to all views.
+Defaults are shown in brackets.  The \(cq\&=\(cq\& for options that take
+a parameter is optional; whitespace may be used instead.  Detailed
+descriptions are given in following sections.
+.PP
+.nf
+\-\-date=STRING   strftime format for time axis [%T]
+\-\-fields2=EVALS secondary expressions to plot
+\-\-form=FORM     aggregate period data [sum]
+\-\-form2=FORM    aggregate secondary period data [sum]
+\-\-label=STRING  label of y axis
+\-\-label2=STRING label of secondary y axis
+\-\-lines=INT     number of time lines to show
+\-\-max=INT       max value of y axis
+\-\-max2=INT      max value of secondary y axis
+\-\-min=INT       min value of y axis
+\-\-min2=INT      min value of secondary y axis
+\-\-splits=INT    number of splits to plot [5]
+\-\-type=TYPE     type of chart [mountain]
+\-\-type2=TYPE    type of secondary chart [line]
+.fi
+./"################################################################
+.SH "OPTIONS"
+./"################################################################
+See savors-view(7) for detailed descriptions of the options that
+are available to all views.
+.IP "\fB\-\-date=STRING\fP"
+A string describing a strftime format (seem strftime(3)) that will be
+used to label ticks on the time axis.  The default is "%T".
+.IP "\fB\-\-fields2=EVALS\fP"
+A comma-separated list of expressions (see savors-expr(7)) that,
+when evaluated against each data line, produces a set of values to be
+plotted on the secondary y axis.
+.IP "\fB\-\-form=FORM\fP"
+The method that should be used to aggregate data lines on the y axis
+when \fB\-\-period\fP is used with supported forms count, dev, max,
+mean, median, min, mode, sum, and var (see "Forms" above).  The
+default is sum.
+.IP "\fB\-\-form2=FORM\fP"
+The method that should be used to aggregate data lines on the
+secondary y axis when \fB\-\-period\fP is used with supported forms
+count, dev, max, mean, median, min, mode, sum, and var (see "Forms"
+above).  The default is sum.
+.IP "\fB\-\-label=STRING\fP"
+The string that should be used to label the y axis.  The string does
+not need to be quoted unless it contain whitespace.  Labels can be
+automatically generated using the "label" data directive (see
+savors-data(7)).
+.IP "\fB\-\-label2=STRING\fP"
+The string that should be used to label the secondary y axis.  The
+string does not need to be quoted unless it contain whitespace.  Labels
+can be automatically generated using the "label" data directive (see
+savors-data(7)).
+.IP "\fB\-\-lines=INT\fP"
+An integer specifying the number of data lines to show at once.  After
+the limit is reached, the oldest data line will be replaced with the
+newest.
+.IP "\fB\-\-max=INT\fP"
+An integer indicating the maximum value of the y axis.  Values greater
+than the maximum may not be shown depending on the chart type.
+.IP "\fB\-\-max2=INT\fP"
+An integer indicating the maximum value of the secondary y axis.
+Values greater than the maximum may not be shown depending on the chart
+type.
+.IP "\fB\-\-min=INT\fP"
+An integer indicating the minimum value of the y axis.  Values less than
+the minimum may not be shown depending on the chart type.
+.IP "\fB\-\-min2=INT\fP"
+An integer indicating the minimum value of the secondary y axis.
+Values less than the minimum may not be shown depending on the chart
+type.
+.IP "\fB\-\-splits=INT\fP"
+An integer indicating the number of splits to break the time axis into
+when using the "split" subtype.  The default is 5.
+.IP "\fB\-\-type=TYPE\fP"
+The type of chart to plot with supported values of bar, direction,
+errorbar, horizontalbar, line, linepoint, mountain, pareto, pie, point,
+split, and stackedbar (see "Subtypes" above).  The default is mountain.
+.IP "\fB\-\-type2=TYPE\fP"
+The type of secondary chart to plot with supported values of bar,
+direction, errorbar, horizontalbar, line, linepoint, mountain, pareto,
+pie, point, split, and stackedbar (see "Subtypes" above).  The default
+is line.
+./"################################################################
+.SH "EXAMPLES"
+./"################################################################
+Show a stacked bar chart of user process CPU consumption.  In this
+example, the top command is invoked in batch mode every 10 seconds to
+collect resource utilization.  The CPU field is plotted and colored
+according to the command of each process.
+.PP
+.RS
+.nf
+env grep='^\s*\d' grep_v=' root ' time=f3 time_grep='^top' top -b -d 10 \\
+    |chart --type=stackedbar --color=f12 --fields=f9+.01 --period=10
+.fi
+.RE
+./"################################################################
+.SH "NOTES"
+./"################################################################
+The "pie" subtype has broken colorization in some cases due to a
+bug in the underlying charting module used.
+./"################################################################
+.SH "FILES"
+./"################################################################
+/etc/savorsrc
+.RS
+This file specifies various global configuration items including
+screen and geometry preferences, file paths, default options, and
+preconfigured views.  See savorsrc(5).
+.RE
+.PP
+$HOME/.savorsrc
+.RS
+This file specifies per user overrides of global configuration and
+saved views.  See savorsrc(5).
+.RE
+./"################################################################
+.SH "AUTHOR"
+./"################################################################
+Savors was written by Paul Kolano.
+./"################################################################
+.SH "SEE ALSO"
+./"################################################################
+savors(1), savors-axis(7), savors-cloud(7), savors-data(7),
+savors-expr(7), savors-graph(7), savors-grid(7), savors-map(7),
+savors-rain(7), savors-tree(7), savors-view(7), savorsrc(5),
+strftime(3)

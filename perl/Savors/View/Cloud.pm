@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2010 United States Government as represented by the
+# Copyright (C) 2010-2021 United States Government as represented by the
 # Administrator of the National Aeronautics and Space Administration
 # (NASA).  All Rights Reserved.
 #
@@ -39,14 +39,13 @@ package Savors::View::Cloud;
 use strict;
 use File::Spec;
 use IPC::Open2;
-use Lingua::StopWords;
 use MIME::Base64;
 use Tk;
 use Tk::PNG;
 
 use base qw(Savors::View);
 
-our $VERSION = 0.21;
+our $VERSION = 2.2;
 
 #############
 #### new ####
@@ -64,7 +63,23 @@ sub new {
     $self->{dopts}->{period} = 1;
 
     $self->{count_eval} = $self->eval($self->getopt('count'));
-    $self->{swords} = Lingua::StopWords::getStopWords('en');
+    # taken from Lingua::StopWords::EN
+    $self->{swords} = {map {$_ => 1} qw(
+		a about above after again against all am an and any are aren't as at be
+		because been before being below between both but by can't cannot could
+		couldn't did didn't do does doesn't doing don't down during each few for
+		from further had hadn't has hasn't have haven't having he he'd he'll
+		he's her here here's hers herself him himself his how how's i i'd i'll
+		i'm i've if in into is isn't it it's its itself let's me more most
+		mustn't my myself no nor not of off on once only or other ought our ours
+		ourselves out over own same shan't she she'd she'll she's should
+		shouldn't so some such than that that's the their theirs them themselves
+		then there there's these they they'd they'll they're they've this those
+		through to too under until up very was wasn't we we'd we'll we're we've
+		were weren't what what's when when's where where's which while who who's
+		whom why why's with won't would wouldn't you you'd you'll you're you've
+		your yours yourself yourselves
+    )};
     $self->{words} = {};
 
     return $self;
@@ -88,29 +103,28 @@ sub help {
         "    cloud - word cloud              " .
             "    cloud --color=f12 --fields=f2,f12 --ngram=2 --period=10\n";
     } else {
-        "USAGE: env OPT=VAL... (ARGS... |...) |cloud ...\n\n" .
-        "OPTIONS:                                       EXAMPLES:\n" .
-        "      --color=EVAL - expression to color by    " .
+        "USAGE: env OPT=VAL... (ARGS... |...) |cloud --opt=val...\n\n" .
+        "OPTIONS:                                          EXAMPLES:\n" .
+        "       --color=EVAL - expression to color by       " .
             "    --color=f12\n" .
-        "      --count=EVAL - expression to increment by" .
+        "       --count=EVAL - expression to increment by   " .
             "    --count='f13+f14'\n" .
-        "     --ctype=CTYPE - method to assign colors by" .
+        "      --ctype=CTYPE - method to assign colors by   " .
             "    --ctype=hash:ord\n" .
-        "    --fields=EVALS - expressions denoting words" .
+        "     --fields=EVALS - expressions denoting words   " .
             "    --fields=f2,f12\n" .
-        "       --font=PATH - path to alternate font    " .
+        "        --font=PATH - path to alternate font       " .
             "    --font=/usr/share/fonts/truetype/Vera.ttf\n" .
-        "          --legend - show color legend         " .
-            "    --legend\n" .
-        "        --max=INTS - max value of each field   " .
-            "    --max=100,10,50\n" .
-        "        --min=INTS - min value of each field   " .
-            "    --min=50,0,10\n" .
-        "       --ngram=INT - length of word sequences  " .
+        "    --legend[=SIZE] - show color legend           \n" .
+        "                        [REAL width or INT pixels]" .
+            "     --legend=0.2\n" .
+        "    --legend-pt=INT - legend font point size       " .
+            "    --legend-pt=12\n" .
+        "        --ngram=INT - length of word sequences     " .
             "    --ngram=2\n" .
-        "     --period=REAL - time between updates      " .
+        "      --period=REAL - time between updates         " .
             "    --period=15\n" .
-        "    --title=STRING - title of view             " .
+        "     --title=STRING - title of view                " .
             "    --title=\"CPU Usage\"\n" .
         "";
     }
@@ -185,6 +199,7 @@ sub view {
     my $self = shift;
     return if (!scalar(keys %{$self->{words}}));
 
+#TODO: show visual error when not installed
     my ($in, $out);
     my $pid = open2($in, $out, File::Spec->catfile($self->{conf}->{lib_dir},
         "cloud", "wordcloud.py"), $self->{width}, $self->{height},

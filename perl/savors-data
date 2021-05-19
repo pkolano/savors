@@ -1,6 +1,6 @@
 #!/usr/bin/env perl
 #
-# Copyright (C) 2010 United States Government as represented by the
+# Copyright (C) 2010-2021 United States Government as represented by the
 # Administrator of the National Aeronautics and Space Administration
 # (NASA).  All Rights Reserved.
 #
@@ -37,6 +37,8 @@
 
 package SavorsData;
 
+use Savors::FatPack::PAL;
+
 use strict;
 use Date::Parse;
 use File::Glob qw(:glob);
@@ -59,7 +61,7 @@ use Savors::View;
 
 use base qw(Net::Server::Multiplex);
 
-our $VERSION = 0.21;
+our $VERSION = 2.2;
 
 my %opts = (
     # buffer size should be kept small
@@ -95,7 +97,7 @@ print $opts{port};
 $opts{port} .= "|unix" if (!$opts{tcp});
 
 # detach process
-exit if (fork);
+_exit(0) if (fork);
 close STDIN;
 close STDOUT;
 close STDERR;
@@ -114,18 +116,21 @@ END {
 }
  
 $opts{cmd} = uri_unescape($opts{cmd});
-my @args = parse_line('\s+', 0, $opts{cmd});
+my @args = parse_line('\s+', 1, $opts{cmd});
 if ($args[0] eq 'env') {
     shift @args;
     while ($args[0] =~ /=/) {
         my $arg = shift @args;
         my ($key, $val) = split(/=/, $arg, 2);
+        $val =~ s/^['"]//;
+        $val =~ s/['"]$//;
         $opts{$key} = $val if ($key && defined $val);
     }
 }
 
 # expand wildcards
 for (my $i = 0; $i < scalar(@args); $i++) {
+    next if ($args[$i] =~ s/^['"]// && $args[$i] =~ s/['"]$//);
     my @vals = bsd_glob($args[$i],
         GLOB_BRACE | GLOB_NOCHECK | GLOB_QUOTE | GLOB_TILDE);
     splice(@args, $i, 1, @vals);
@@ -310,7 +315,7 @@ sub mux_input {
                             if ($opts{time} && !$opts{time_grep});
                         my $color;
                         $color = parse_color($data, $mux) if ($opts{color});
-                        $vars = "$time:$opts{data}:$color";
+                        $vars = join(":", $time, $opts{data}, $color);
                     }
                     $data = cut($data) if ($opts{cut});
                     unshift(@{$data}, $vars);
@@ -327,8 +332,29 @@ sub mux_input {
         }
         if ($msg =~ /^join/) {
             $ready{$fh} = 1;
-            if ($msg =~ /console/) {
-                $console = $fh;
+            if ($msg =~ /\s+(\S+)/) {
+                my $view = $1;
+                if ($view eq 'console') {
+                    $console = $fh;
+                } else {
+            		my $sock;
+            		if ($opts{tcp}) {
+                		$sock = IO::Socket::INET->new(
+                    		Blocking => 0,
+                    		PeerAddr => $view,
+                    		Proto => 'tcp',
+                		);
+            		} else {
+                		$sock = IO::Socket::UNIX->new(
+                    		Peer => $view,
+                		);
+                		$sock->blocking(0);
+            		}
+            		sleep 0.1 while (!$sock->connected);
+                    $sockets{$sock} = $sock;
+                    $mux->add($sock);
+                    $mux->write($sock, "label $labels\n") if ($labels);
+                }
             } else {
                 $sockets{$fh} = $fh;
                 $mux->write($fh, "label $labels\n") if ($labels);
@@ -389,7 +415,7 @@ sub mux_input {
                         if ($opts{time} && !$opts{time_grep});
                     my $color;
                     $color = parse_color($data, $mux) if ($opts{color});
-                    $vars = "$time:$opts{data}:$color";
+                    $vars = join(":", $time, $opts{data}, $color);
                 }
                 $data = cut($data) if ($opts{cut});
                 unshift(@{$data}, $vars);
@@ -424,7 +450,7 @@ my @unsent_colors;
 sub parse_color {
     my $data = shift;
     my $mux = shift;
-    unshift(@{$data}, ":::");
+    unshift(@{$data}, "::");
     my @colors = $view->color($data);
     shift @{$data};
     if (!$console && scalar(@colors) > 1) {
@@ -467,6 +493,7 @@ sub parse_label {
         $eval =~ s/f(\d+)/$fields[$1-1]/g;
         my $nlabel = eval $eval;
         $nlabel =~ s/(,)/sprintf("%%%02X", ord($1))/eg;
+#TODO: this needs to be broken up (approx 34786 boundaries)
         push(@nlabels, $nlabel);
     }
     $labels = join(",", @nlabels);

@@ -1,0 +1,796 @@
+.TH "savors" "1" "18 May 2021" "" ""
+./"################################################################
+.SH "NAME"
+./"################################################################
+\fBsavors\fP \(em a tool for impromptu visualization of data streams
+./"################################################################
+.SH "SYNOPSIS"
+./"################################################################
+.nf
+\fBsavors\fP [OPTION]...
+.fi
+.PP
+Bring up the Savors console to interactively create, manage, and display
+visualizations.
+.PP
+.nf
+\fBsavors\fP -c COMMAND [OPTION]...
+.fi
+.PP
+Display the visualization described in the given command without the
+Savors console.
+./"################################################################
+.SH "DESCRIPTION"
+./"################################################################
+Savors is a framework for Synchronization And Visualization Of aRbitrary
+Streams.  The goal of Savors is to supercharge the command-line tools already
+used by administrators with powerful visualizations that help them understand
+the output much more rapidly and with far greater scalability across systems.
+Savors not only supports the output of existing commands, but does so in a
+manner consistent with those commands by combining the line-editing
+capabilities of vi, the rapid window manipulation of GNU screen, the power and
+compactness of Perl expressions, and the elegance of Unix pipelines.  Savors
+was designed to support "impromptu visualization", where the user can simply
+feed in the commands they were already using to create alternate views with
+optional on-the-fly aggregation of information across many systems.  In this
+way, visualization becomes part of the administrator's standard repertoire of
+monitoring and analysis techniques with no need for a priori aggregation of
+data at a centralized resource or conversion of the data into a predefined
+format.
+.PP
+Savors is unique in its support of all four combinations of single/multiple
+data streams and single/multiple views.  That is, Savors can show any number of
+data streams either consolidated in the same view or spread out across multiple
+views.  In multi-data scenarios, data streams can be synchronized by time
+allowing even distributed data streams to be viewed in the same temporal
+context.  In single-data multi-view scenarios, views are updated in lockstep
+fashion so they show the same data at the same time.  Together with its
+integrated parallelization capabilities, this allows Savors to easily show
+meaningful results from across even very large installations.
+.PP
+Savors consists of three components:
+.IP -
+The \fBconsole\fP is responsible for user interaction, spawning data
+servers and views according to given command pipelines, and controlling
+synchronization between data streams.  When Savors is invoked with -c,
+the user interface is not shown, but the console still runs to provide
+its other functionality.
+.IP -
+One or more \fBdata servers\fP are responsible for spawning and
+interacting with the commands that generate data, manipulating the data
+as specified, and sending the data to the console and views.
+.IP -
+One or more \fBviews\fP are responsible for visualizing the data as
+specified on one or more displays.
+./"################################################################
+.SH "QUICK START"
+./"################################################################
+To quickly see a demonstration of Savors in action, do the following:
+.PP
+.PD 0
+.IP (1)
+run "savors"
+.IP (2)
+type ":r "
+.IP (3)
+type in one of the listed saved view names and hit return
+.IP (4)
+hit return again
+.IP (5)
+C-c to stop, :q to exit
+.PD
+./"################################################################
+.SH "OPTIONS SUMMARY"
+./"################################################################
+The following options are available in Savors.  Defaults are shown in
+brackets.  Some options have short and long variants separated by
+commas.  The \(cq\&=\(cq\& for options that take a parameter is
+optional; whitespace may be used instead.  Detailed descriptions are
+given in following sections.
+.PP
+.nf
+\-c, \-\-command=CMD  run command line without console
+\-\-conf=FILE        load config from file [$HOME/.savorsrc]
+\-\-frame            show frame on view windows
+\-\-geometry=GEOM    geometry of console window [1024x640+400+400]
+\-h, \-\-help[=TOPIC] help with optional topic one of {bind,data,ex,view
+                     axis,chart,cloud,graph,grid,map,rain,tree}
+\-\-passive          views wait for data connections instead of vice\-versa
+\-\-smaxx=REAL       max fraction of screen width to use for views [1]
+\-\-smaxy=REAL       max fraction of screen height to use for views [1]
+\-\-snap=PERIOD      take layout snapshot every PERIOD amount of time
+                     (use suffix {s,m,h,d,w} for {sec,min,hour,day,week})
+\-\-snap\-file=FILE   save snapshots to FILE
+\-\-tcp              use TCP sockets instead of Unix sockets
+\-\-vgeometry=GEOM   geometry of screen area to use for views
+.fi
+./"################################################################
+.SH "OPTIONS"
+./"################################################################
+.IP "\fB\-c, \-\-command=CMD\fP"
+Run the given command line without the console window.  See
+"Console-less operation" under "ADVANCED USAGE" for more detail.
+.IP "\fB\-\-conf=FILE\fP"
+Load the user configuration from the given file.  The default file is
+$HOME/.savorsrc.  Note that the global configuration in /etc/savorsrc is
+always loaded.
+.IP "\fB\-\-frame\fP"
+Enable frames on windows so they can be moved, minimized, maximized,
+and closed in the traditional manner.  Note that closing windows outside
+of the Savors console may cause the current session to freeze.  By
+default, view windows are shown frameless to maximize screen real estate
+and minimize visual clutter.  
+.IP "\fB\-\-geometry=GEOM\fP"
+Specify the geometry of the Savors console window.  A geometry takes
+the form "WxH[+-]X[+-]Y" where W and H are positive integers specifying
+the width and height, respectively, of the window and X and Y are
+horizontal and vertical offsets, respectively, in pixels.  Positive
+offsets are relative to the top left of the screen while negative
+offsets are relative to the bottom right.  The default geometry is
+1024x640+400+400.
+.IP "\fB\-h, \-\-help[=TOPIC]\fP"
+Show a brief usage summary or the summary of an optional topic in the
+set {bind, data, ex, view, axis, chart, cloud, graph, grid, map, rain,
+tree}.
+.IP "\fB\-\-passive\fP"
+Specify that views should listen for data connections from the data
+servers to which they are subscribed.  By default, views initiate
+connections to data servers.  The direction needed will depend on the
+configuration of the network and the host/network firewall rules in
+place.
+.IP "\fB\-\-smaxx=REAL\fP"
+A real number between 0 and 1 indicating the fraction of the width
+across all displays that should be used for views.  The default is 1.
+.IP "\fB\-\-smaxy=REAL\fP"
+A real number between 0 and 1 indicating the fraction of the height
+across all displays that should be used for views.  The default is 1.
+.IP "\fB\-\-snap=PERIOD\fP"
+Take snapshots of the current layout at the specified interval.
+The default unit is secomds but the suffixes s, m, h, d, and w may be
+used for seconds, minutes, hours, days, and weeks, respectively.
+This option is intended for console-less operation.
+.IP "\fB\-\-snap\-file=FILE\fP"
+Save snapshots to the given file.  This location will be used both for
+manual snapshots taken with the C-s binding in view windows as well as
+for automated periodic snapshots taken with the \fB\-\-snap\fP option.
+Note that automated snapshots will use the given file as a base name to
+which a timestamp will be added.
+.IP "\fB\-\-tcp\fP"
+Use TCP sockets to communicate between components.  This option is meant
+for environments where the default Unix sockets are not available or
+when the console, data servers, or display are not on the same system.
+Note that data streams are not encrypted between components.
+.IP "\fB\-\-vgeometry=GEOM\fP"
+Specify the geometry of the screen area that should be used to display
+views.  See the \fB\-\-geometry\fP option for geometry format.
+./"################################################################
+.SH "SAVORS CONSOLE"
+./"################################################################
+Savors is invoked by calling the "savors" executable.  This brings up
+a console window through which all interaction is carried out.  The
+console contains the current view layout in the upper left, a vi-like
+line editor and context-sensitive help in the upper right, and
+information about the active view such as color mappings and data
+time/contents at the bottom.
+.PP
+Savors is based on a model similar to that of GNU screen where the
+display consists of one or more layouts that each contain one or more
+regions, which themselves each house one or more windows, with each
+window corresponding to a single view.  Multiple windows can be created
+in each region with shuffling between them.  Regions may be split both
+horizontally and vertically allowing arbitrary layouts to be created.
+Like windows, multiple layouts can be created with shuffling between
+them allowing a completely new set of windows to be swapped in with a
+single keystroke.
+.PP
+The main form of interaction is the command line editor in the upper
+right.  Just like vi, the editor starts in "escape-mode" so requires
+a/A/i/I to enter insertion mode or "ex-mode" colon commands to
+load/save views or exit.  Saved views and certain options are stored in
+~/.savorsrc (see savorsrc(5)).  Context-sensitive help is shown beneath
+the editor depending on the console mode and position in the text.
+./"================================================================
+.SS "Initiating Views"
+./"================================================================
+To visualize a command pipeline, type/load the pipeline into the
+buffer and hit return.  A pipeline consists of three parts that will be
+discussed throughout the remainder:
+.PP
+.PD 0
+.IP (1)
+the command or piped sequence of commands to visualize
+.IP (2)
+directives on how to manipulate the command output given through a
+pseudo-env environment
+.IP (3)
+how to display the data through a supported view
+.PD
+.PP
+The final command pipeline will be in the form:
+.PP
+.RS
+.nf
+env OPT=VAL... (ARGS... |...) |VIEW ...
+.fi
+.RE
+.PP
+For example, the following shows a simple "hello world" example:
+.PP
+.RS
+.nf
+env repeat=1 echo hello world |rain
+.fi
+.RE
+./"================================================================
+.SS "Saving/Loading Views"
+./"================================================================
+Views are saved/loaded via "ex-mode" similar to that of vi.  To enter
+ex-mode, type ":" when in escape mode (i.e. when the green "insert"
+button is not shown), which can always be entered by hitting the escape
+key.  The following commands are supported in ex-mode:
+.IP :q
+Like vi, ":q" quits.  Note that unlike vi, unsaved buffers will not
+prevent program exit (i.e. ":q" currently acts like vi ":q!").  This
+behavior may be changed to more closely emulate vi in the future.
+.IP ":r NAME"
+To load a view called "name", use ":r name" then hit return.  When
+":r" is entered, the help region will fill with the predefined views
+available.  As more text is entered (e.g. ":r tree"), the help region
+will fill with the possible completions.  Tab may be used to
+automatically complete the name with the one that matches the prefix or
+with a partial completion and the names remaining in the help region.
+Hit return to load, then return to run.
+.IP ":s FILE"
+To save the canvas of the active window, use ":s file" then hit
+return.  Note that files are written in postscript format.
+.IP ":S FILE"
+To save the canvases of the active layout, use ":S file" then hit
+return.  Note that the postscript files of the individual windows
+comprising the layout will be automatically stitched together.
+.IP ":w NAME"
+To save a view called "name", use ":w name" then hit return.  Note
+that ":w" by itself does not save a view previously loaded as vi would.
+This behavior may be changed to more closely emulate vi in the future.
+.PP
+The following key bindings are supported in ex-mode:
+.PP
+.PD 0
+.RS
+.IP BackSpace
+Remove prev char
+.IP Control-c
+Abort ex mode
+.IP Escape
+Abort ex mode
+.IP Tab
+Complete :r name
+.RE
+.PD
+./"================================================================
+.SS "Window/Region/Layout Manipulation"
+./"================================================================
+The Savors interface uses a model similar to GNU screen.  The key
+bindings have been streamlined to be a mix of vi escape mode and screen
+commands to avoid the use of the screen C-a meta key.
+.PP
+The console always starts out with a single window in a single region in
+a single layout.  Just like screen, there can be multiple windows per
+region ("c" to create) with shuffling between them ("n" next, "p"
+previous).  Just like screen >= 4.1, regions can be split both
+horizontally with "s" or vertically with "S".  Also just like screen
+>= 4.1, there can be multiple layouts ("C" to create) where a layout may
+contain any arrangement of regions with shuffling between them ("N"
+next, "P" previous).  In general, layouts are manipulated with the
+capital version of the window commands (e.g. "c" creates window, "C"
+creates layout).  Movement between regions is achieved using capital vi
+movement keys (i.e. HJKL) or Shift-{Left,Down,Up,Right}.
+.PP
+Each window has its own command buffer used to create new
+visualizations.  By default, all views will be synchronized by time.
+Since this is not always desired, especially with computationally
+expensive views such as graph/tree, or with data across multiple regions
+of time, a "sync" directive can be used to specify the group with which
+to sync each data stream.  The default group is "1".  Use a group of "0"
+to be completely unsynchronized.  Note that when the data generator
+portion of a command matches exactly, the views will share the data
+instead of spawning a new command.  
+.PP
+Any/all windows can be paused and stepped.  Use "z" to stop the
+current window and any windows in the same sync group.  Use "Z" to stop
+all windows.  Use "j" or the Down key to step forward (stepping back is
+not yet implemented).  Use "z" or "Z" again to unpause.  You can pause
+all windows, then unpause some of them, and vice-versa depending which
+window you are in.
+./"================================================================
+.SS "Console Escape-Mode Bindings"
+./"================================================================
+./"----------------------------------------------------------------
+Console mode
+./"----------------------------------------------------------------
+.RS
+.PD 0
+.IP :
+Ex mode
+.IP Escape
+Escape mode
+.PD
+.RE
+.PP
+./"----------------------------------------------------------------
+Cursor movement
+./"----------------------------------------------------------------
+.RS
+.PD 0
+.IP b
+Back word
+.IP B
+Back non-space
+.IP e
+End word
+.IP E
+End non-space
+.IP h
+Cursor left
+.IP l
+cursor right
+.IP w
+Next word
+.IP W
+Next non-space
+.IP x
+Delete char
+.IP 0
+line start
+.IP $
+line end
+.IP ^
+line non-space start
+.IP BackSpace
+cursor left
+.IP Left
+cursor left
+.IP Right
+cursor right
+.IP Space
+cursor right
+.PD
+.RE
+.PP
+./"----------------------------------------------------------------
+Text manipulation
+./"----------------------------------------------------------------
+.RS
+.PD 0
+.IP a
+append cursor
+.IP A
+append at end
+.IP d
+delete word
+.IP D
+delete to end
+.IP i
+insert cursor
+.IP I
+insert at start
+.IP u
+undo
+.IP U
+redo
+.IP y
+yank line
+.IP Y
+yank line
+.IP ]
+paste line
+.IP Delete
+delete char
+.PD
+.RE
+.PP
+./"----------------------------------------------------------------
+Window manipulation
+./"----------------------------------------------------------------
+.RS
+.PD 0
+.IP c
+create window
+.IP C
+create layout
+.IP H
+layout left
+.IP J
+layout down
+.IP K
+layout up
+.IP L
+layout right
+.IP n
+next window
+.IP N
+next layout
+.IP p
+prev window
+.IP P
+prev layout
+.IP q
+unfocus region (not yet implemented)
+.IP Q
+focus region (not yet implemented)
+.IP r
+remove window (not yet implemented)
+.IP R
+remove layout (not yet implemented)
+.IP s
+horizontal split
+.IP S
+vertical split
+.IP X
+delete region
+.IP Shift-Down
+layout down
+.IP Shift-Left
+layout left
+.IP Shift-Right
+layout right
+.IP Shift-Up
+layout up
+.PD
+.RE
+.PP
+./"----------------------------------------------------------------
+View/Data manipulation
+./"----------------------------------------------------------------
+.RS
+.PD 0
+.IP j
+step forward
+.IP k
+step back (not yet implemented)
+.IP t
+step time forward
+.IP z
+pause window
+.IP Z
+pause all
+.IP Control-c
+abort view
+.IP Down
+step forward
+.IP Return
+execute view
+.IP Up
+step back (not yet implemented)
+.PD
+.RE
+.PD
+./"################################################################
+.SH "COMMAND PIPELINES AND DATA HANDLING"
+./"################################################################
+To demonstrate the anatomy of a command pipeline and illustrate
+various features, the process of creating a treemap of user CPU activity
+via top across four hosts will be used as a running example.  To see
+what this looks like on a single system, type ":r tree_top" then two
+returns in the console.  The normal top mode manipulates the terminal
+window via curses, which isn't supported by Savors, so the "-b" option
+is needed to force the non-curses batch mode.  To keep top producing
+data periodically, "-d 10" is used to update every 10 seconds.  Hence,
+the basic data generator is:
+.PP
+.RS
+.nf
+top -b -d 10
+.fi
+.RE
+.PP
+To achieve a consolidated view across four systems (which will be called
+host[1-4]), however, we must ssh to each and run the same command.
+While it is possible to create a command line to do this and consolidate
+everything together outside of Savors, Savors has a more efficient way
+of handling this using its built-in "data directives", which describe
+how to produce and/or transform the data.  Data directives are specified
+using a "pseudo-env" command (i.e. similar to but not actually invoking
+the standard env command) where directive names are variables and
+directive contents are the values.  In this case, to run the same
+command over a set of systems, the "data" setting can be used:
+.PP
+.RS
+.nf
+env data=1,2,3,4 ssh hostfD top -b -d 10 ...
+.fi
+.RE
+.PP
+Note that the data directive also supports the form i-j so this case
+could also have been written "data=1-4".  "fD" is one of a few special
+variables that is replaced by the various values of the data directive,
+so in this case, this creates 4 data streams composed of the top command
+on each host host[1-4].  As will be seen later, this fD variable is also
+available in the view specification to distinguish where each line of
+data came from.
+.PP
+Since a primary function of Savors is to synchronize different streams
+via time, Savors needs to understand the time associated with every line
+of command output.  You can either (1) not give a time, in which case
+the current time will be assigned, (2) give a "sync=0" directive, in
+which time is disregarded, or (3) give a "time" directive to tell which
+fields constitute the time.  The top command is a special case because
+the time for many lines of output is only given on one line during each
+iteration.  For cases like this, there is a "time_grep" directive,
+which specifies a regular expression that should match only when the
+line containing the time is encountered.  In the case of top, we see the
+following output with the time:
+.PP
+.RS
+.nf
+top - 16:30:06 up 42 days, 8:31, 122 users, load average: ...
+.fi
+.RE
+.PP
+which occurs when "top" is found at the left margin, specified as the
+regex "^top" in Perl syntax (which all Savors regexes assume - see
+perlre(1)).  We must also tell Savors where in this line the time
+occurs.  This is done using a "field specifier", which can be either a
+single field like "f1", a field sequence like "f2-f5", a list of fields
+like "f3,f7,f13", or "fL", which corresponds to the last field.  Fields
+are assumed to be whitespace separated and start from f1 so in this
+case, we would use "time=f3" as f1 is "top", f2 is "-", and f3 is
+"16:30:06".  If input data is split by something other than or in
+addition to whitespace, the "split" directive can be used to specify
+the regex corresponding to the field separator (e.g. split='\\s+|,' would
+split by both whitespace and commas).
+.PP
+In the command output, there may be lines that we don't want to
+visualize or that don't follow the format we expect.  For example, each
+top iteration looks like this:
+.PP
+.RS
+.nf
+top - 16:30:06 up 42 days, 8:31, 122 users, load average: ...
+Tasks: 1408 total, 2 running, 1404 sleeping, 2 stopped, 0 zombie
+Cpu(s): 0.6%us, 1.0%sy, 0.0%ni, 98.1%id, 0.3%wa, 0.0%hi, 0.0%si, 0.0%st
+Mem: 64402M total, 55083M used, 9319M free, 189M buffers
+Swap: 97346M total, 766M used, 96579M free, 36911M cached
+
+  PID USER      PR  NI  VIRT  RES  SHR S %CPU %MEM    TIME+  COMMAND
+47647 someuser  20   0  9984 2104  772 R    6  0.0   0:00.05 top
+...
+.fi
+.RE
+.PP
+Since we are trying to visualize CPU activity at the process level, we
+only want the pid/user/.../cmd lines.  While this could be done with
+an additional grep in the command pipeline, Savors again has a built-in
+way to handle this common case.  The "grep" and "grep_v" directives
+tell Savors the lines that you do and don't care about, respectively,
+just like the standard grep and grep -v commands, but again with Perl
+regexes.
+.PP
+In this case, we are trying to get user CPU activity, so we need to
+keep the process lines while eliminating root processes.  For this, we
+use the "grep" directive with a regex '^\s*\d', which means keep lines
+that begin with a digit (possibly preceded by whitespace) and the
+"grep_v" directive with a regex ' root ', which means eliminate that
+have root surrounded by spaces.  This leaves our final data generator
+with directives as:
+.PP
+.RS
+.nf
+env grep='^\s*\d' grep_v=' root ' time=f3 time_grep='^top' \\
+    data=1,2,3,4 ssh hostfD top -b -d 10 ...
+.fi
+.RE
+.PP
+See savors-data(7) for more information on supported data directives.
+./"################################################################
+.SH "VIEWS"
+./"################################################################
+The final command in each pipeline specifies how to visualize the data
+using the view type as the command with any desired options relevant to
+that type.  In the running example, we want to show a treemap (see
+savors-treemap(1)) so would use:
+.PP
+.RS
+.nf
+|tree ...
+.fi
+.RE
+.PP
+The default Savors treemap is a squarified treemap, which is a
+hierarchical tree of rectangular regions.  A given region shows the
+percentage of the parent's total of some valuation that the given region
+represents.  For the running example, we want the valuation to be CPU
+activity.
+.PP
+To specify the hierarchy of regions, the tree view uses a list of
+expressions given in the \fB\-\-fields\fP option (this option is used
+in all view types).  If we look at the top header, we can see the
+mapping between field numbers and what each field represents:
+.PP
+.RS
+.nf
+PID USER PR NI VIRT RES SHR S  %CPU %MEM TIME+ COMMAND
+ f1  f2  f3 f4  f5   f6  f7 f8  f9   f10  f11    f12
+.fi
+.RE
+.PP
+For our treemap, we would like the highest level box to be the host
+where the data came from.  In Savors, \fB\-\-fields\fP is a
+comma-separated list of arbitrary Perl expressions that are evaluated
+dynamically together with the various special "f*" variables.  Note that
+expressions of anything besides simple fields or lists of fields must be
+quoted.  We can create the highest level with the expression 'q(host).fD',
+which is the string "host" concatenated with the particular data value
+that the data came from.  We would then like the regions to break down by
+user, command, and finally CPU activity.  We will base the CPU activity
+on the %CPU field.  Since this can often be zero, we will add a small
+value so that all processes are represented.  Our view specification is
+now:
+.PP
+.RS
+.nf
+|tree --fields='q(host).fD',f2,f12,f9+.01
+.fi
+.RE
+.PP
+Another important consideration is how to color the treemap.  In the
+treemap and other views, the \fB\-\-color\fP option specifies how colors
+will be assigned.  Like each expression in the \fB\-\-fields\fP list,
+\fB\-\-color\fP represents an arbitrary Perl expression.  It will
+typically be a "f*" variable, but is not limited to that.  In the case
+of our treemap, we will color by the command using \fB\-\-color=f12\fP,
+hence we will easily be able to distinguish the same command running on
+different hosts.  The final option we will use is the \fB\-\-period\fP
+option to specify how much time within the data that we wish to show at
+once.  Since top is updating every 10 seconds, we will use
+\fB\-\-period=10\fP instead of the default of 1, making our final view
+specification:
+.PP
+.RS
+.nf
+|tree --fields='q(host).fD',f2,f12,f9+.01 --color=f12 --period=10
+.fi
+.RE
+.PP
+This makes our full command:
+.PP
+.RS
+.nf
+env grep='^\s*\d' grep_v=' root ' time=f3 time_grep='^top' \\
+    data=1,2,3,4 ssh hostfD top -b -d 10 \\
+    |tree --fields='q(host).fD',f2,f12,f9+.01 --color=f12 --period=10
+.fi
+.RE
+.PP
+See savors-view(7) for more information on supported views.
+./"################################################################
+.SH "ADVANCED USAGE"
+./"################################################################
+./"================================================================
+.SS "Console-less operation"
+./"================================================================
+A view can be run without the console by using the \fB\-\-command\fP
+option set to either a full command (that would normally be entered in
+the console editor) or to the name of a view saved with :w in the
+console.  The geometry of this window can be specified using
+\fB\-\-vgeometry\fP.  In this mode of operation, the following key
+bindings are available:
+.PP
+.RS
+.PD 0
+.IP j
+step forward
+.IP k
+step back (not yet implemented)
+.IP t
+step time forward
+.IP z
+pause window
+.IP Control-c
+abort view
+.IP Control-s
+save window canvas
+.IP Down
+step forward
+.IP Up
+step back (not yet implemented)
+.PD
+.RE
+.PD
+.PP
+When C-s is used, the window canvas will be saved to the configured
+value of the "snap_file" setting or savors-snapshot.ps otherwise.
+.PP
+This feature can be used to easily create visual versions of
+standard/useful commands that can be deployed for all users without the
+need for any Savors knowledge.
+./"================================================================
+.SS "Multi-view windows"
+./"================================================================
+A single window can be arbitrarily subdivided into subwindows in a
+single command, which can be used to quickly generate parameter studies.
+The "view" directive specifies the parameters to use in each view.  The
+"layout" directive specifies the arrangement of windows in the current
+region.  Layouts are any combination of grids (WxH), vertical splits
+(L|R), and horizontal splits (T-B), with grids having a higher
+precedence than splits.  For vertical splits, the shorthand "I|J" for
+integers I and J may be used to represent "1xI|1xJ".  Similarly, for
+horizontal splits, the shorthand "I-J" may be used to represent
+"Ix1-Jx1".  For example,
+.PP
+.RS
+.nf
+layout='(4-1)|(3x2)'
+.fi
+.RE
+.PP
+would represent a layout where the left half of the window has 4
+subwindows on top with 1 subwindow on the bottom and the right half of
+the window has 6 subwindows arranged in 2 rows of 3 columns.
+.PP
+A new subwindow is spawned for each view value.  Before spawning, the
+special variable "fV" is replaced by each value in data generator
+pipelines and view options.  For example:
+.PP
+.RS
+.nf
+env view=1-4 layout=2x2 ssh hostfV ...
+.fi
+.RE
+.PP
+would create a view for each of four hosts host[1-4] in a 2x2 grid.
+./"================================================================
+.SS "Multi-host displays"
+./"================================================================
+Displays that consist of multiple monitors connected to separate hosts
+can be supported by configuring the "displays" and "wall" configuration
+items.  The wall setting specifies the layout of the displays (only grid
+layouts are supported).  The displays setting specifies a list of
+host/$DISPLAY pairs for each monitor in the grid.  Columns of each row
+are mapped to displays in left to right order before the row below is
+mapped.
+.PP
+Note that each display host must be accessible via non-interactive ssh
+authentication (e.g. publickey or hostbased) and all corresponding ssh
+public host keys must be in the user's or system's known host file.
+./"################################################################
+.SH "NOTES"
+./"################################################################
+Savors is not compatible with tiling window managers (e.g. ratpoison)
+as it does its own tiling.
+.PP
+Savors is in an alpha state so it is quite likely it will crash at some
+point as error handling and input validation are minimal.  In some
+scenarios, data-related processes may not always be cleaned up
+appropriately.  Whatever the cause, processes may be killed quickly using
+"killall perl" or "killall /usr/bin/perl" depending on system type (care
+should be taken, of course, not to kill unrelated processes).
+./"################################################################
+.SH "EXIT STATUS"
+./"################################################################
+savors exits with 0 on success or >0 if an error occurs.
+./"################################################################
+.SH "FILES"
+./"################################################################
+/etc/savorsrc
+.RS
+This file specifies various global configuration items including
+screen and geometry preferences, file paths, default options, and
+preconfigured views.  See savorsrc(5).
+.RE
+.PP
+$HOME/.savorsrc
+.RS
+This file specifies per user overrides of global configuration and
+saved views.  See savorsrc(5).
+.RE
+./"################################################################
+.SH "AUTHOR"
+./"################################################################
+savors was written by Paul Kolano.
+./"################################################################
+.SH "SEE ALSO"
+./"################################################################
+perlre(1), savors-axis(7), savors-chart(7), savors-cloud(7),
+savors-data(7), savors-expr(7), savors-graph(7), savors-grid(7),
+savors-map(7), savors-rain(7), savors-tree(7), savors-view(7),
+savorsrc(5), screen(1), vi(1)

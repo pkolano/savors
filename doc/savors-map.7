@@ -1,0 +1,153 @@
+.TH "savors-map" "7" "18 May 2021" "" ""
+./"################################################################
+.SH "NAME"
+./"################################################################
+\fBsavors-map\fP \(em plot quantity and/or relationships of data
+fields occurring in or between geographical areas
+./"################################################################
+.SH "SYNOPSIS"
+./"################################################################
+.nf
+env OPT=VAL... (ARGS... |...) |map --opt=val...
+.fi
+.PP
+Display a map view based on the given data pipeline.
+./"################################################################
+.SH "DESCRIPTION"
+./"################################################################
+The map view type plots data lines on top of traditional maps.  Items
+within data lines must either contain latitude or longitude data or be
+converted.  Maps for the world, US by state, and US by county are
+included.  Other regions of the world can be supported by providing a
+file in standard shape file format for the region of interest.  Data can
+be plotted on the maps in three different ways.
+./"################################################################
+.SH "SUBTYPES"
+./"################################################################
+The map view has three subtypes.
+.IP arc
+Plot an arc from the first coordinate to the second.  Four field
+expressions must be specified corresponding to two latitude/longitude
+pairs.
+.IP bubble
+Plot a circle of a given size at the given coordinate.  Three field
+expressions must be specified corresponding to an expression for the
+bubble size and a latitude/longitude pair.
+.IP heat
+Fill the region containing the given coordinate with a heatmap-style
+color based on the given value.  Three field expressions must be
+specified corresponding to an expression for the heat value and a
+latitude/longitude pair.
+./"################################################################
+.SH "OPTIONS SUMMARY"
+./"################################################################
+The following options are specific to the axis view.  See savors-view(7)
+for additional options that are available to all views.  Defaults are
+shown in brackets.  The \(cq\&=\(cq\& for options that take a parameter
+is optional; whitespace may be used instead.  Detailed descriptions are
+given in following sections.
+.PP
+.nf
+\-\-attr=STRING     attribute containing tags
+\-\-dash=EVAL       condition to dash edge
+\-\-file=FILE       name of shape file [world]
+\-\-max=INTS        max value of each field
+\-\-min=INTS        min value of each field
+\-\-no-tags=REGEX   exclude matching tags
+\-\-tags=REGEX      include matching tags
+\-\-type=TYPE       type of map [arc]
+.fi
+./"################################################################
+.SH "OPTIONS"
+./"################################################################
+See savors-view(7) for detailed descriptions of the options that
+are available to all views.
+.IP "\fB\-\-attr=STRING\fP"
+The attribute of the shape file associated with the \fB\-\-file\fP
+option that should be used for evaluating the \fB\-\-tags\fP and
+\fB\-\-no\-tags\fP options.  The attributes that will be available
+depend on the shape file in use.  In the included shape files for the
+world and the United States by state and county, the attributes are
+described in the "lib/maps/*/*.txt" files of the distribution.
+.IP "\fB\-\-dash=EVAL\fP"
+A Savors expression (see savors-expr(7)) that will be evaluated
+against each data line to determine if the associated arc should be
+shown dashed.  Dashed arcs will be shown for non-zero, non-empty values.
+This option is only applicable to the "arc" subtype.
+.IP "\fB\-\-file=FILE\fP"
+The base name of shape file to display.  This file must exist in a
+directory of the same name under the "maps" directory in the directory
+configured with the "lib_dir" setting (see savorsrc(5)).  The file
+extension should not be included as it will be detected automatically
+depending on the format of the shape file.  Three shape files are
+included in the distribution for the world ("world"), United States by
+state ("us_state"), and United States by county ("us_county").
+.IP "\fB\-\-max=REALS\fP"
+A comma-separated list of real numbers indicating the maximum value of
+each of the corresponding fields in \fB\-\-fields\fP.  Values greater
+than the maximum will be adjusted to the maximum.  The number of values
+given must match the number of fields.  This option is only applicable
+to the "heat" subtype.
+.IP "\fB\-\-min=REALS\fP"
+A comma-separated list of real numbers indicating the minimum value of
+each of the corresponding fields in \fB\-\-fields\fP.  Values less
+than the minimum will be adjusted to the minimum.  The number of values
+given must match the number of fields.  This option is only applicable
+to the "heat" subtype.
+.IP "\fB\-\-no-tags=REGEX\fP"
+A regular expression in Perl syntax (see perlre(1)) indicating the
+tags to exclude from the plot.  These tags are values of the attribute
+of the shape file specified with the \fB\-\-attr\fP option so will vary
+accordingly.  When this option is specified, tags that match the 
+given regular expression will not be shown even if they also match
+\fB\-\-tags\fP.
+.IP "\fB\-\-tags=REGEX\fP"
+A regular expression in Perl syntax (see perlre(1)) indicating the
+tags to include in the plot.  These tags are values of the attribute
+of the shape file specified with the \fB\-\-attr\fP option so will vary
+accordingly.  When this option is specified, tags that do not match the 
+given regular expression will not be shown.  Tags that do match will
+only be shown if they do not also match \fB\-\-no\-tags\fP.
+.IP "\fB\-\-type=TYPE\fP"
+The type of map plot to show with supported values of arc, bubble, and
+heat (see "Subtypes" above).  The default is arc.
+./"################################################################
+.SH "EXAMPLES"
+./"################################################################
+Show a world map with the source and destination of each local TCP
+connection connected by arcs colored by source IP address.  In this
+example, tcpdump is used to obtain the raw data, with extraneous output
+filtered by the "sed" data directive and the iplat and iplong functions
+used to convert IP address to latitude and longitude, respectively.
+.PP
+.RS
+.nf
+env time=f1 sed='\.\d+ \>|\.\d+:/' tcpdump -ni any tcp \\
+    |map --color=f3 --fields='iplat(f3),iplong(f3),iplat(f4),iplong(f4)'
+.fi
+.RE
+./"################################################################
+.SH "FILES"
+./"################################################################
+/etc/savorsrc
+.RS
+This file specifies various global configuration items including
+screen and geometry preferences, file paths, default options, and
+preconfigured views.  See savorsrc(5).
+.RE
+.PP
+$HOME/.savorsrc
+.RS
+This file specifies per user overrides of global configuration and
+saved views.  See savorsrc(5).
+.RE
+./"################################################################
+.SH "AUTHOR"
+./"################################################################
+Savors was written by Paul Kolano.
+./"################################################################
+.SH "SEE ALSO"
+./"################################################################
+perlre(1), savors(1), savors-axis(7), savors-chart(7), savors-cloud(7),
+savors-data(7), savors-expr(7), savors-graph(7), savors-grid(7),
+savors-rain(7), savors-tree(7), savors-view(7), savorsrc(5)

@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2010 United States Government as represented by the
+# Copyright (C) 2010-2021 United States Government as represented by the
 # Administrator of the National Aeronautics and Space Administration
 # (NASA).  All Rights Reserved.
 #
@@ -36,20 +36,22 @@
 
 package Savors::View::Tree;
 
+use Savors::FatPack::PAL;
+
 use strict;
+use Digest::CRC qw(crc32);
 use File::Spec;
 use MIME::Base64;
-use String::CRC;
 use Tk;
 use Tk::JPEG;
 use Treemap::Input;
 use Treemap::Output::Imager;
 use Treemap::Squarified;
-use XML::Simple;
+use XML::TreePP;
 
 use base qw(Savors::View);
 
-our $VERSION = 0.22;
+our $VERSION = 2.2;
 
 #############
 #### new ####
@@ -92,33 +94,36 @@ sub help {
         "     tree - various treemaps        " .
             "    tree --color=f2 --fields=f3,f2,f4,f5 --period=60\n";
     } else {
-        "USAGE: env OPT=VAL... (ARGS... |...) |tree ...\n\n" .
+        "USAGE: env OPT=VAL... (ARGS... |...) |tree --opt=val...\n\n" .
         "TYPES: histo,squarified,weighted\n\n" .
-        "OPTIONS:                                       EXAMPLES:\n" .
-        "      --color=EVAL - expression to color by    " .
+        "OPTIONS:                                          EXAMPLES:\n" .
+        "       --color=EVAL - expression to color by      " .
             "    --color=f2\n" .
-        "     --ctype=CTYPE - method to assign colors by" .
+        "      --ctype=CTYPE - method to assign colors by  " .
             "    --ctype=hash:ord\n" .
-        "       --face=FONT - alternate font face       " .
+        "        --face=FONT - alternate font face         " .
             "    --face=Arial\n" .
-        "    --fields=EVALS - expressions to plot       " .
+        "     --fields=EVALS - expressions to plot         " .
             "    --fields=f28,f2,f3+.01\n" .
-        "       --font=PATH - path to alternate font    " .
+        "        --font=PATH - path to alternate font      " .
             "    --font=/usr/share/fonts/truetype/Vera.ttf\n" .
-        "          --legend - show color legend         " .
-            "    --legend\n" .
-        "        --max=INTS - max value of each field   " .
-            "    --max=100,10,50\n" .
-        "        --min=INTS - min value of each field   " .
-            "    --min=50,0,10\n" .
-        "     --period=REAL - time between updates      " .
+        "    --legend[=SIZE] - show color legend           \n" .
+        "                        [REAL width or INT pixels]" .
+            "    --legend=0.2\n" .
+        "    --legend-pt=INT - legend font point size      " .
+            "    --legend-pt=12\n" .
+        "      --period=REAL - time between updates        " .
             "    --period=15\n" .
-        "       --show=INTS - max items for each level  " .
+        "        --show=INTS - max items for each level    " .
             "    --show=10,5,10\n" .
-        "    --title=STRING - title of view             " .
+        "     --title=STRING - title of view               " .
             "    --title=\"CPU Usage\"\n" .
-        "       --type=TYPE - type of tree              " .
-            "    --type=\"histo\"\n" .
+        "        --type=TYPE - type of tree                " .
+            "    --type=histo\n" .
+        "    --xfields=EVALS - x location of each field    " .
+            "    --xfields=iplong(f5)\n" .
+        "    --yfields=EVALS - y location of each field    " .
+            "    --yfields=iplat(f5)\n" .
         "";
     }
 }
@@ -219,8 +224,8 @@ sub view {
         ($self->getopt('type') eq 'squarified' ? "Squarified" : "Ordered");
     my $tm = $mod->new(
         INPUT => $tm_in, OUTPUT => $tm_out, PADDING => 1, SPACING => 1);
-    $tm_in->{DATA} = XMLin(scalar($self->xml($self->{root}, "", 0)),
-        KeyAttr => [], ForceArray => ["children"]);
+    my $xml = XML::TreePP->new(attr_prefix => "", force_array => [qw(children)]);
+    $tm_in->{DATA} = $xml->parse(scalar($self->xml($self->{root}, "", 0)));
     $tm_in->{DATA}->{weighted} = 1 if ($self->getopt('type') eq 'weighted');
     $tm->map;
     my $image;
@@ -264,7 +269,7 @@ sub xml {
             (my $color, $name, my $x, my $y) = split(/,/, $name);
             if ($self->getopt('type') ne 'squarified') {
                 if (!$x || !$y) {
-                    my $crc = crc($name, 32);
+                    my $crc = crc32($name);
                     $x = $crc & 0xffff if (!$x);
                     $y = $crc >> 16 if (!$y);
                 }
@@ -308,7 +313,7 @@ $fatpacked{"Treemap/Ordered.pm"} = '#line '.(1+__LINE__).' "'.__FILE__."\"\n".<<
   our @ISA = qw(Exporter Treemap);
   our @EXPORT_OK = ();
   our @EXPORT = qw();
-  our $VERSION = 0.01;
+  our $VERSION = 2.2;
   
   my $weighted;
   
@@ -427,6 +432,4 @@ else {
 
 unshift @INC, bless \%fatpacked, $class;
   } # END OF FATPACK CODE
-
-1;
 

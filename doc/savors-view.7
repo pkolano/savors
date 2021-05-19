@@ -1,0 +1,201 @@
+.TH "savors-view" "7" "18 May 2021" "" ""
+./"################################################################
+.SH "NAME"
+./"################################################################
+\fBsavors-view\fP \(em an internal Savors component providing options
+common to all views
+./"################################################################
+.SH "SYNOPSIS"
+./"################################################################
+.nf
+env OPT=VAL... (ARGS... |...) |VIEW --opt=val...
+.fi
+.PP
+Invoke the underlying savors-view command to display the given VIEW and
+provide interaction with the console and with the associated data
+producer.
+./"################################################################
+.SH "DESCRIPTION"
+./"################################################################
+The savors-view command is an internally-invoked component of Savors
+that handles the communication and display of supported visualizations.
+It is not meant to be directly invoked by users, but is implicitly
+invoked as the final element of the given command pipeline.
+.PP
+This document does not describe the options and behavior of the actual
+underlying savors-view command.  Instead, it describes the common
+user-facing options that are available for all view types through the
+Savors command line.
+./"################################################################
+.SH "VIEW TYPES"
+./"################################################################
+Savors can currently display eight primary view types, each of which has
+its own secondary subtypes.
+.IP axis
+Plots of multivariate numerical data along axes arranged in various
+ways.  See savors-axis(7).
+.IP chart
+A variety of common chart types showing relative quantities of items
+occurring in the data.  See savors-chart(7).
+.IP cloud
+Plots of text strings where the frequency or other count associated
+with a string determines the relative size of the font it is displayed
+with.  See savors-cloud(7).
+.IP graph
+A variety of common graph types showing the relationships between
+fields in the data.  See savors-graph(7).
+.IP grid
+Plots arranged in a grid showing relationships between fields or the
+values of fields over time.  See savors-grid(7).
+.IP map
+Plots of quantity and/or relationships of fields in the data occurring
+in or between geographical areas.  See savors-map(7).
+.IP rain
+Plots of raw data fields using text or pixel lines that stream down
+the screen from top to bottom.  See savors-rain(7).
+.IP tree
+Hierarchical plots where nested rectangles represent parent-child
+relationships and the size of each rectangle represents the relative
+value of a given metric compared to its peers.  See savors-tree(7).
+./"################################################################
+.SH "OPTIONS SUMMARY"
+./"################################################################
+The following options are available to all Savors views.  Defaults are
+shown in brackets.  The \(cq\&=\(cq\& for options that take a parameter
+is optional; whitespace may be used instead.  Detailed descriptions are
+given in following sections.
+.PP
+.nf
+\-\-color=EVAL    expression to color by
+\-\-ctype=CTYPE   method to assign colors by
+\-\-fields=EVALS  subset of fields to show
+\-\-legend[=SIZE] show color legend [REAL width or INT pixels] [64]
+\-\-legend\-pt=INT legend font point size [10]
+\-\-period=REAL   time between updates
+\-\-title=STRING  title of view
+.fi
+./"################################################################
+.SH "OPTIONS"
+./"################################################################
+.IP "\fB\-\-color=EVAL\fP"
+The expression used to assign a color to each data line (see
+savors-expr(7)).  The expression is evaluated against the data
+fields to produce a value, with each unique value assigned a color
+according to the \fB\-\-ctype\fP option.  All data lines that evaluate
+to the same value will produce the same color.  If the expression
+returns an RGB hex color in the form "#XXXXXX" where X is a hex digit,
+that color will be used.
+.IP "\fB\-\-ctype=CTYPE\fP"
+The specification of how to assign colors to the value produced by the
+\fB\-\-color\fB option.  By default, colors are assigned in round robin
+fashion against the default color palette in the order received.  While
+sufficient for one-time visualizations, the coloring of the same view
+against slightly differing data sets will likely be inconsistent, which
+may make it unsuitable for multi-use visualizations.  Two color type
+specifications are currently available that may be used to change this
+behavior.
+.RS
+.PP
+The type "hash:EVAL" takes an expression representing a hash function
+and computes the value when the Perl variable "$_" is set to the data
+line's \fB\-\-color\fP value and then uses the modulo of the resulting
+hash value against the color palette.  In this way, the same
+\fB\-\-color\fP value will always produce the same color.  When just
+"hash" is used, the default hash function is "crc32($_)" (see
+"Functions" below).
+.PP
+The type "heat:NUM:NUM" assigns colors using a heatmap-style rainbow
+mapping.  The two numbers define the thresholds at which all
+\fB\-\-color\fP values will be assigned the "coldest" and "warmest"
+colors, respectively.  When just "heat" is used, it is assumed all
+\fB\-\-color\fP values will be a fraction between 0 and 1.  The form
+"heat:NUM:NUM:RGB:RGB" may be used to assign colors as a transition
+between the first (coldest) and second (warmest) colors given as RGB hex
+colors (see \fB\-\-color\fP) instead of the default rainbow mapping.
+.RE
+.IP "\fB\-\-fields=EVALS\fP"
+A comma-separated list of expressions (see savors-expr(7)) that,
+when evaluated against each data line, produces a set of values to be
+plotted by the view.  Note that the number and form of the fields
+depends on the specific view type being used.
+.IP "\fB\-\-legend[=SIZE]\fP"
+Use a portion of the view window on the right to display a color legend.
+The default width is 64 pixels, but can be changed by giving either an
+integer number of pixels or a real number between 0 and 1 indicating the
+fraction of the width to use.
+.IP "\fB\-\-legend\-pt=INT\fP"
+Use the given integer point size for text in the legend.  The default is
+10.
+.IP "\fB\-\-period=REAL\fP"
+Only update the view after the given number of seconds have elapsed.
+Since it may be too time-consuming to plot every line of data received,
+this option can be used to increase the time between display updates.
+Note that data is still processed internally, which can be done at much
+higher speed.
+.IP "\fB\-\-title=STRING\fP"
+Use a portion of the view window on the bottom to display the given
+title string.  The string does not need to be quoted unless it contains
+whitespace.
+./"################################################################
+.SH "EXAMPLES"
+./"################################################################
+The following examples only show the final view portion of the Savors
+command pipeline and do not show the data directive portion.  Additional
+examples with type-specific options can be found in the individual view
+man pages.
+.PP
+Show an axis view of the default type that plots fields 3, 5, 7, and
+9 where each data line is colored based on the value of first character
+of field 19 with a color legend:
+.PP
+.RS
+.nf
+axis --legend --color=f19 --ctype='hash:ord' --fields=f3,f5,f7,f9
+.fi
+.RE
+.PP
+Show a chart view of the default type that plots the value of 1 plus
+the square root of the absolute value of field 2, colored red with a
+title "My chart".
+.PP
+.RS
+.nf
+chart --title='My Chart' --color='#ff0000' --fields='1+sqrt(abs(f2))'
+.fi
+.RE
+.PP
+Show a tree map view of the default type that plots the top-down
+hierarchy of fields 3, 2, and 4 sized according to field 5, colored
+using a rainbow heatmap with 0 as the coldest value and 100 as the
+warmest, and refreshed every 60 seconds.
+.PP
+.RS
+.nf
+tree --color=f2 --ctype='heat:0:100' --fields=f3,f2,f4,f5 --period=60
+.fi
+.RE
+./"################################################################
+.SH "FILES"
+./"################################################################
+/etc/savorsrc
+.RS
+This file specifies various global configuration items including
+screen and geometry preferences, file paths, default options, and
+preconfigured views.  See savorsrc(5).
+.RE
+.PP
+$HOME/.savorsrc
+.RS
+This file specifies per user overrides of global configuration and
+saved views.  See savorsrc(5).
+.RE
+./"################################################################
+.SH "AUTHOR"
+./"################################################################
+Savors was written by Paul Kolano.
+./"################################################################
+.SH "SEE ALSO"
+./"################################################################
+savors(1), savors-axis(7), savors-chart(7), savors-cloud(7),
+savors-data(7), savors-expr(7), savors-graph(7), savors-grid(7),
+savors-map(7), savors-rain(7), savors-tree(7), savorsrc(5)

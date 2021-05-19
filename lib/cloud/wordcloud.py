@@ -94,7 +94,7 @@ def make_wordcloud(words, counts, colors, font_path=None,
             orientation = random.choice([None, Image.ROTATE_90])
             transposed_font = ImageFont.TransposedFont(font,
                                                        orientation=orientation)
-            draw.setfont(transposed_font)
+            draw.font = transposed_font
             # get size of resulting text
             box_size = draw.textsize(word)
             # find possible places using integral image:
@@ -143,7 +143,7 @@ def make_wordcloud(words, counts, colors, font_path=None,
         # transpose font optionally
         transposed_font = ImageFont.TransposedFont(font,
                                                    orientation=orientation)
-        draw.setfont(transposed_font)
+        draw.font = transposed_font
         color = "#" + color
         draw.text((position[1], position[0]), word, fill=color)
                   #fill="hsl(%d" % random.randint(0, 255) + ", 80%, 50%)")
