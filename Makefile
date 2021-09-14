@@ -30,7 +30,7 @@ lib_install: prefix cloud_install map_install perl_install
 
 cloud_install:
 	install -d $(PREFIX)lib/savors/cloud
-	install lib/cloud/query_integral_image.[sd]* $(PREFIX)lib/savors/cloud
+	install lib/cloud/query_integral_image*.[sd]* $(PREFIX)lib/savors/cloud
 	install lib/cloud/wordcloud.py $(PREFIX)lib/savors/cloud
 
 man_install: prefix
