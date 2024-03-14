@@ -27,7 +27,7 @@ if ($opts{help}) {
     print "  --plprefix=DIR     perl installation directory [$opts{plprefix}]\n";
     print "  --prefix=DIR       installation directory [$opts{prefix}]\n";
     print "\n";
-    print "Report bugs to <paul.kolano\@nasa.gov>\n";
+    print "Report bugs to <pkolano\@gmail.com>\n";
     exit 0;
 }
 $opts{geodb} = abs_path($opts{geodb}) if ($opts{geodb});
